@@ -1,0 +1,60 @@
+import type {
+  TicketStatus,
+  TicketPriority,
+  TicketCategory,
+  AttachmentType,
+} from "./types";
+
+export const STATUSES: TicketStatus[] = [
+  "Новая",
+  "В работе",
+  "На проверке",
+  "Выполнена",
+];
+
+export const PRIORITIES: TicketPriority[] = [
+  "Низкий",
+  "Средний",
+  "Высокий",
+  "Срочно",
+];
+
+export const CATEGORIES: TicketCategory[] = [
+  "Внедрение",
+  "Доработка",
+  "Поддержка",
+  "Обучение",
+  "Интеграция",
+];
+
+export const TEAM = [
+  "—",
+  "Артём Иванов",
+  "Дмитрий Соколов",
+  "Елена Крылова",
+];
+
+// Цвета бейджей: [цвет текста, цвет фона] — из дизайна «Вариант D»
+export const STATUS_COLORS: Record<TicketStatus, [string, string]> = {
+  Новая: ["#4a7cd6", "#e5edfb"],
+  "В работе": ["#1a9d55", "#d9f2e3"],
+  "На проверке": ["#c47d17", "#fbeed4"],
+  Выполнена: ["#6f887f", "#e7eeeb"],
+};
+
+export const PRIORITY_COLORS: Record<TicketPriority, [string, string]> = {
+  Срочно: ["#d64545", "#fbe3e3"],
+  Высокий: ["#d67d17", "#fbeed4"],
+  Средний: ["#4a5f57", "#e7eeeb"],
+  Низкий: ["#6f887f", "#eef3f1"],
+};
+
+export function attachmentIcon(type: AttachmentType): string {
+  return type === "image" ? "🖼" : type === "link" ? "🔗" : "📎";
+}
+
+export function initials(name: string | null | undefined): string {
+  if (!name) return "GS";
+  const parts = name.trim().split(/\s+/);
+  return (parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "");
+}

@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  background: #eef5f2;
+  color: #152a24;
+  -webkit-font-smoothing: antialiased;
+}
+
+::placeholder {
+  color: #9db3ac;
+}
+::selection {
+  background: #bfe9e1;
+}
+
+/* Аккуратные нативные контролы под палитру бренда */
+input,
+textarea,
+select,
+button {
+  font-family: inherit;
+}
