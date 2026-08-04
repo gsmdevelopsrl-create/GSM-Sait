@@ -51,6 +51,13 @@ export default async function DashboardPage() {
     })
   );
 
+  // Список компаний: админ видит все (RLS), клиент — только свою.
+  const { data: companiesRaw } = await supabase
+    .from("companies")
+    .select("id, name")
+    .order("name");
+  const companies = (companiesRaw ?? []) as { id: string; name: string }[];
+
   return (
     <Dashboard
       role={role}
@@ -58,8 +65,10 @@ export default async function DashboardPage() {
         name: fullName,
         company: role === "admin" ? "GSM Developer SRL" : companyName,
         ini: role === "admin" ? "GS" : initials(fullName),
+        email: user.email ?? "—",
       }}
       tickets={tickets}
+      companies={companies}
     />
   );
 }
