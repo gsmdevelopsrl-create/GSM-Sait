@@ -200,3 +200,34 @@ export async function updateProfile(input: {
   revalidatePath("/dashboard");
   return {};
 }
+
+export async function updateCompany(input: {
+  companyId: string;
+  name: string;
+  members: { id: string; full_name: string }[];
+}): Promise<{ error?: string }> {
+  const me = await getMe();
+  if (!me || me.role !== "admin") return { error: "Нет прав." };
+
+  const supabase = await createClient();
+
+  const name = input.name.trim();
+  if (!name) return { error: "Укажите название компании." };
+
+  const { error: cErr } = await supabase
+    .from("companies")
+    .update({ name })
+    .eq("id", input.companyId);
+  if (cErr)
+    return { error: "Не удалось переименовать компанию (имя уже занято?)." };
+
+  for (const m of input.members) {
+    const fn = m.full_name.trim();
+    if (fn) {
+      await supabase.from("profiles").update({ full_name: fn }).eq("id", m.id);
+    }
+  }
+
+  revalidatePath("/dashboard");
+  return {};
+}

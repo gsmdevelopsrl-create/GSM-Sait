@@ -32,16 +32,25 @@ const adminNav: { key: Section; label: string }[] = [
   { key: "profile", label: "Профиль" },
 ];
 
+type Member = {
+  id: string;
+  full_name: string | null;
+  role: string;
+  company_id: string | null;
+};
+
 export function Dashboard({
   role,
   me,
   tickets,
   companies,
+  members,
 }: {
   role: Role;
   me: Me;
   tickets: Ticket[];
   companies: Company[];
+  members: Member[];
 }) {
   const isAdmin = role === "admin";
   const [showNew, setShowNew] = useState(false);
@@ -231,6 +240,7 @@ export function Dashboard({
           <CompaniesView
             companies={companies}
             tickets={tickets}
+            members={members}
             onOpen={openCompany}
           />
         )}

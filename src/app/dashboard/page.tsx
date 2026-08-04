@@ -58,6 +58,17 @@ export default async function DashboardPage() {
     .order("name");
   const companies = (companiesRaw ?? []) as { id: string; name: string }[];
 
+  // Сотрудники (профили): админ видит все, клиент — только себя (RLS).
+  const { data: membersRaw } = await supabase
+    .from("profiles")
+    .select("id, full_name, role, company_id");
+  const members = (membersRaw ?? []) as {
+    id: string;
+    full_name: string | null;
+    role: string;
+    company_id: string | null;
+  }[];
+
   return (
     <Dashboard
       role={role}
@@ -70,6 +81,7 @@ export default async function DashboardPage() {
       }}
       tickets={tickets}
       companies={companies}
+      members={members}
     />
   );
 }
