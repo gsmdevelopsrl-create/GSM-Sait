@@ -14,10 +14,13 @@ create table if not exists public.companies (
 create table if not exists public.profiles (
   id         uuid primary key references auth.users(id) on delete cascade,
   full_name  text,
+  position   text,
   company_id uuid references public.companies(id) on delete set null,
   role       text not null default 'client' check (role in ('client', 'admin')),
   created_at timestamptz not null default now()
 );
+-- для уже созданных проектов
+alter table public.profiles add column if not exists position text;
 
 create table if not exists public.tickets (
   id          bigint generated always as identity (start with 1043) primary key,
@@ -141,7 +144,10 @@ create trigger tickets_touch
 -- ── Редактирование своего профиля (имя + компания) ──────────────────────────
 -- SECURITY DEFINER: позволяет и клиенту, и админу привязать/создать компанию
 -- по названию, не нарушая RLS. Меняет только профиль текущего пользователя.
-create or replace function public.update_my_profile(p_full_name text, p_company text)
+drop function if exists public.update_my_profile(text, text);
+create or replace function public.update_my_profile(
+  p_full_name text, p_company text, p_position text
+)
 returns void language plpgsql security definer set search_path = public as $$
 declare
   v_name    text := nullif(trim(p_full_name), '');
@@ -160,7 +166,8 @@ begin
 
   update public.profiles
   set full_name  = coalesce(v_name, full_name),
-      company_id = coalesce(v_cid, company_id)
+      company_id = coalesce(v_cid, company_id),
+      position   = nullif(trim(p_position), '')
   where id = auth.uid();
 end;
 $$;

@@ -185,6 +185,7 @@ export async function addComment(
 export async function updateProfile(input: {
   full_name: string;
   company: string;
+  position: string;
 }): Promise<{ error?: string }> {
   const me = await getMe();
   if (!me) return { error: "Сессия истекла, войдите заново." };
@@ -194,6 +195,7 @@ export async function updateProfile(input: {
   const { error } = await supabase.rpc("update_my_profile", {
     p_full_name: input.full_name,
     p_company: input.company,
+    p_position: input.position,
   });
 
   if (error) return { error: "Не удалось сохранить изменения." };
@@ -204,7 +206,7 @@ export async function updateProfile(input: {
 export async function updateCompany(input: {
   companyId: string;
   name: string;
-  members: { id: string; full_name: string }[];
+  members: { id: string; full_name: string; position: string }[];
 }): Promise<{ error?: string }> {
   const me = await getMe();
   if (!me || me.role !== "admin") return { error: "Нет прав." };
@@ -224,7 +226,10 @@ export async function updateCompany(input: {
   for (const m of input.members) {
     const fn = m.full_name.trim();
     if (fn) {
-      await supabase.from("profiles").update({ full_name: fn }).eq("id", m.id);
+      await supabase
+        .from("profiles")
+        .update({ full_name: fn, position: m.position.trim() || null })
+        .eq("id", m.id);
     }
   }
 

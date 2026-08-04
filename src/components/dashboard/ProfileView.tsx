@@ -6,22 +6,28 @@ import { updateProfile } from "@/app/dashboard/actions";
 export function ProfileView({
   name,
   company,
+  position,
   email,
   ini,
   isAdmin,
 }: {
   name: string;
   company: string;
+  position: string;
   email: string;
   ini: string;
   isAdmin: boolean;
 }) {
   const [fullName, setFullName] = useState(name);
   const [companyName, setCompanyName] = useState(company);
+  const [jobTitle, setJobTitle] = useState(position);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const dirty = fullName.trim() !== name || companyName.trim() !== company;
+  const dirty =
+    fullName.trim() !== name ||
+    companyName.trim() !== company ||
+    jobTitle.trim() !== position;
 
   const save = (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,6 +36,7 @@ export function ProfileView({
       const res = await updateProfile({
         full_name: fullName,
         company: companyName,
+        position: jobTitle,
       });
       if (res.error) setMsg({ ok: false, text: res.error });
       else setMsg({ ok: true, text: "Данные сохранены." });
@@ -78,6 +85,16 @@ export function ProfileView({
           <p className="mt-1.5 text-[11px] text-muted">
             Если укажете новое название — компания будет создана автоматически.
           </p>
+        </div>
+
+        <div>
+          <label className="mb-1.5 block text-[13px] font-bold">Должность</label>
+          <input
+            value={jobTitle}
+            onChange={(e) => setJobTitle(e.target.value)}
+            placeholder="напр. Главный бухгалтер"
+            className={inputCls}
+          />
         </div>
 
         <div>

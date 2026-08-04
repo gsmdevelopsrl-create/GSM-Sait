@@ -5,7 +5,12 @@ import { STATUSES, STATUS_COLORS, initials } from "@/lib/constants";
 import { updateCompany } from "@/app/dashboard/actions";
 import type { Ticket, TicketStatus } from "@/lib/types";
 
-type Member = { id: string; full_name: string | null; role: string };
+type Member = {
+  id: string;
+  full_name: string | null;
+  position: string | null;
+  role: string;
+};
 
 export function CompanyModal({
   company,
@@ -23,6 +28,9 @@ export function CompanyModal({
   const [name, setName] = useState(company.name);
   const [memberNames, setMemberNames] = useState<Record<string, string>>(
     Object.fromEntries(members.map((m) => [m.id, m.full_name ?? ""]))
+  );
+  const [memberPos, setMemberPos] = useState<Record<string, string>>(
+    Object.fromEntries(members.map((m) => [m.id, m.position ?? ""]))
   );
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
@@ -46,6 +54,7 @@ export function CompanyModal({
         members: members.map((m) => ({
           id: m.id,
           full_name: memberNames[m.id] ?? "",
+          position: memberPos[m.id] ?? "",
         })),
       });
       if (res.error) setMsg({ ok: false, text: res.error });
@@ -123,30 +132,51 @@ export function CompanyModal({
                 Нет зарегистрированных сотрудников.
               </div>
             ) : (
-              <div className="flex flex-col gap-2.5">
+              <div className="flex flex-col gap-3">
                 {members.map((m) => (
-                  <div key={m.id} className="flex items-center gap-2.5">
-                    <input
-                      value={memberNames[m.id] ?? ""}
-                      onChange={(e) =>
-                        setMemberNames((prev) => ({
-                          ...prev,
-                          [m.id]: e.target.value,
-                        }))
-                      }
-                      placeholder="Имя сотрудника"
-                      className={inputCls}
-                    />
-                    <span
-                      className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold"
-                      style={
-                        m.role === "admin"
-                          ? { background: "#d6f0eb", color: "#0c7d70" }
-                          : { background: "#eef3f1", color: "#6f887f" }
-                      }
-                    >
-                      {m.role === "admin" ? "Админ" : "Клиент"}
-                    </span>
+                  <div
+                    key={m.id}
+                    className="rounded-xl border border-line bg-[#f9fcfb] p-3"
+                  >
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-muted">
+                        Сотрудник
+                      </span>
+                      <span
+                        className="rounded-full px-2.5 py-1 text-[11px] font-bold"
+                        style={
+                          m.role === "admin"
+                            ? { background: "#d6f0eb", color: "#0c7d70" }
+                            : { background: "#eef3f1", color: "#6f887f" }
+                        }
+                      >
+                        {m.role === "admin" ? "Админ" : "Клиент"}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <input
+                        value={memberNames[m.id] ?? ""}
+                        onChange={(e) =>
+                          setMemberNames((prev) => ({
+                            ...prev,
+                            [m.id]: e.target.value,
+                          }))
+                        }
+                        placeholder="Имя"
+                        className={inputCls}
+                      />
+                      <input
+                        value={memberPos[m.id] ?? ""}
+                        onChange={(e) =>
+                          setMemberPos((prev) => ({
+                            ...prev,
+                            [m.id]: e.target.value,
+                          }))
+                        }
+                        placeholder="Должность (напр. бухгалтер)"
+                        className={inputCls}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>

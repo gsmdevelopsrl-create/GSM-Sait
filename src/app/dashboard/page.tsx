@@ -19,18 +19,20 @@ export default async function DashboardPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("full_name, role, company_id, companies(name)")
+    .select("full_name, position, role, company_id, companies(name)")
     .eq("id", user.id)
     .single();
 
   const p = profile as {
     role?: "client" | "admin";
     full_name?: string | null;
+    position?: string | null;
     companies?: { name: string } | { name: string }[] | null;
   } | null;
   const role = p?.role ?? "client";
   const companyName = one<{ name: string }>(p?.companies ?? null)?.name ?? "—";
   const fullName = p?.full_name ?? "Пользователь";
+  const position = p?.position ?? "";
 
   const { data: raw } = await supabase
     .from("tickets")
@@ -61,10 +63,11 @@ export default async function DashboardPage() {
   // Сотрудники (профили): админ видит все, клиент — только себя (RLS).
   const { data: membersRaw } = await supabase
     .from("profiles")
-    .select("id, full_name, role, company_id");
+    .select("id, full_name, position, role, company_id");
   const members = (membersRaw ?? []) as {
     id: string;
     full_name: string | null;
+    position: string | null;
     role: string;
     company_id: string | null;
   }[];
@@ -76,6 +79,7 @@ export default async function DashboardPage() {
         name: fullName,
         company: role === "admin" ? "GSM Developer SRL" : companyName,
         realCompany: companyName === "—" ? "" : companyName,
+        position,
         ini: role === "admin" ? "GS" : initials(fullName),
         email: user.email ?? "—",
       }}

@@ -6,7 +6,13 @@ import { CompanyModal } from "./CompanyModal";
 import type { Ticket, TicketStatus } from "@/lib/types";
 
 type Company = { id: string; name: string };
-type Member = { id: string; full_name: string | null; role: string; company_id: string | null };
+type Member = {
+  id: string;
+  full_name: string | null;
+  position: string | null;
+  role: string;
+  company_id: string | null;
+};
 
 export function CompaniesView({
   companies,

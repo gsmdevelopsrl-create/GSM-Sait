@@ -14,6 +14,7 @@ type Me = {
   name: string;
   company: string;
   realCompany: string;
+  position: string;
   ini: string;
   email: string;
 };
@@ -35,6 +36,7 @@ const adminNav: { key: Section; label: string }[] = [
 type Member = {
   id: string;
   full_name: string | null;
+  position: string | null;
   role: string;
   company_id: string | null;
 };
@@ -251,6 +253,7 @@ export function Dashboard({
           <ProfileView
             name={me.name}
             company={me.realCompany}
+            position={me.position}
             email={me.email}
             ini={me.ini}
             isAdmin={isAdmin}
