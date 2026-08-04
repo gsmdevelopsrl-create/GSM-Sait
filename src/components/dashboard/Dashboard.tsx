@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Logo } from "@/components/Logo";
 import { TicketList } from "./TicketList";
 import { NewTicketModal } from "./NewTicketModal";
@@ -112,7 +113,11 @@ export function Dashboard({
       {/* Шапка */}
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[#e2ede9] bg-white px-4 py-4 md:px-8">
         <div className="flex items-center gap-6">
-          <div className="flex items-center gap-3">
+          <Link
+            href="/"
+            title="На главную страницу"
+            className="flex items-center gap-3 rounded-xl px-1 py-1 transition hover:opacity-80"
+          >
             <Logo size={38} />
             <div className="leading-tight">
               <div className="text-[15px] font-extrabold">GSM Developer</div>
@@ -120,7 +125,7 @@ export function Dashboard({
                 {isAdmin ? "АДМИНИСТРАТОР" : "КЛИЕНТ"}
               </div>
             </div>
-          </div>
+          </Link>
           <nav className="hidden gap-1.5 md:flex">
             {nav.map((item) => {
               const active = section === item.key;
