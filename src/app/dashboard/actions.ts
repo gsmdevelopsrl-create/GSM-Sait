@@ -181,3 +181,22 @@ export async function addComment(
   revalidatePath("/dashboard");
   return {};
 }
+
+export async function updateProfile(input: {
+  full_name: string;
+  company: string;
+}): Promise<{ error?: string }> {
+  const me = await getMe();
+  if (!me) return { error: "Сессия истекла, войдите заново." };
+  if (!input.full_name.trim()) return { error: "Укажите имя." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("update_my_profile", {
+    p_full_name: input.full_name,
+    p_company: input.company,
+  });
+
+  if (error) return { error: "Не удалось сохранить изменения." };
+  revalidatePath("/dashboard");
+  return {};
+}

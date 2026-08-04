@@ -64,6 +64,7 @@ export default async function DashboardPage() {
       me={{
         name: fullName,
         company: role === "admin" ? "GSM Developer SRL" : companyName,
+        realCompany: companyName === "—" ? "" : companyName,
         ini: role === "admin" ? "GS" : initials(fullName),
         email: user.email ?? "—",
       }}

@@ -138,6 +138,33 @@ create trigger tickets_touch
   before update on public.tickets
   for each row execute function public.touch_updated_at();
 
+-- ── Редактирование своего профиля (имя + компания) ──────────────────────────
+-- SECURITY DEFINER: позволяет и клиенту, и админу привязать/создать компанию
+-- по названию, не нарушая RLS. Меняет только профиль текущего пользователя.
+create or replace function public.update_my_profile(p_full_name text, p_company text)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_name    text := nullif(trim(p_full_name), '');
+  v_company text := nullif(trim(p_company), '');
+  v_cid     uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  if v_company is not null then
+    insert into public.companies(name) values (v_company)
+    on conflict (name) do nothing;
+    select id into v_cid from public.companies where name = v_company;
+  end if;
+
+  update public.profiles
+  set full_name  = coalesce(v_name, full_name),
+      company_id = coalesce(v_cid, company_id)
+  where id = auth.uid();
+end;
+$$;
+
 -- ── Row Level Security ───────────────────────────────────────────────────────
 
 alter table public.companies          enable row level security;

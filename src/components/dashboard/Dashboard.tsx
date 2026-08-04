@@ -6,10 +6,17 @@ import { TicketList } from "./TicketList";
 import { NewTicketModal } from "./NewTicketModal";
 import { CompaniesView } from "./CompaniesView";
 import { AnalyticsView } from "./AnalyticsView";
+import { ProfileView } from "./ProfileView";
 import { signOut } from "@/app/login/actions";
 import type { Ticket, Role, TicketStatus } from "@/lib/types";
 
-type Me = { name: string; company: string; ini: string; email: string };
+type Me = {
+  name: string;
+  company: string;
+  realCompany: string;
+  ini: string;
+  email: string;
+};
 type Company = { id: string; name: string };
 type Section = "tickets" | "companies" | "analytics" | "profile" | "documents";
 
@@ -224,31 +231,13 @@ export function Dashboard({
         {section === "analytics" && <AnalyticsView tickets={tickets} />}
 
         {section === "profile" && (
-          <div className="max-w-[520px] rounded-2xl border border-line bg-white p-6">
-            <div className="mb-4 flex items-center gap-3">
-              <div className="grid h-12 w-12 place-items-center rounded-full bg-mint text-base font-bold text-brand-dark">
-                {me.ini}
-              </div>
-              <div>
-                <div className="text-lg font-extrabold">{me.name}</div>
-                <div className="text-sm text-muted">
-                  {isAdmin ? "Администратор" : "Клиент"}
-                </div>
-              </div>
-            </div>
-            <dl className="divide-y divide-[#eef5f2]">
-              {[
-                ["Email", me.email],
-                ["Компания", me.company],
-                ["Роль", isAdmin ? "Администратор" : "Клиент"],
-              ].map(([k, v]) => (
-                <div key={k} className="flex justify-between py-2.5">
-                  <dt className="text-sm text-muted">{k}</dt>
-                  <dd className="text-sm font-semibold text-ink">{v}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
+          <ProfileView
+            name={me.name}
+            company={me.realCompany}
+            email={me.email}
+            ini={me.ini}
+            isAdmin={isAdmin}
+          />
         )}
 
         {section === "documents" && (
