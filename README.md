@@ -81,18 +81,38 @@ npm run dev
 
 ---
 
-## Шаг 4. Уведомления в Telegram (бот randan.com)
+## Шаг 4. Telegram: бот-приложение и уведомления
 
-1. В Telegram напишите [@BotFather](https://t.me/BotFather) → `/newbot` → получите **токен** бота.
-2. Узнайте **chat_id**, куда слать уведомления:
-   - для личного чата: напишите что-нибудь боту, затем откройте
+### 4.1. Создать бота
+1. В Telegram напишите [@BotFather](https://t.me/BotFather) → `/newbot` → получите **токен**.
+2. Впишите токен в `TELEGRAM_BOT_TOKEN` (в `.env.local` и в Vercel).
+
+### 4.2. Уведомления о новых заявках (необязательно)
+1. Узнайте **chat_id**, куда слать уведомления:
+   - личный чат: напишите что-нибудь боту, откройте
      `https://api.telegram.org/bot<ТОКЕН>/getUpdates` — там будет `chat.id`;
-   - для канала/группы: добавьте бота в него и возьмите `chat_id` (для каналов начинается с `-100`).
-3. Заполните в `.env.local` (и позже в Vercel):
-   - `TELEGRAM_BOT_TOKEN` — токен от BotFather
-   - `TELEGRAM_CHAT_ID` — id чата/канала
+   - канал/группа: добавьте бота и возьмите `chat_id` (у каналов начинается с `-100`).
+2. Впишите его в `TELEGRAM_CHAT_ID`.
 
-Если переменные пустые — сайт работает как обычно, просто без уведомлений.
+Если переменная пустая — сайт работает как обычно, просто без уведомлений.
+
+### 4.3. Mini App — оформление заявок прямо в Telegram
+Клиент открывает бота и работает с заявками, не заходя на сайт: список своих
+заявок, статусы, переписка, создание новой заявки.
+
+1. Убедитесь, что заданы **`TELEGRAM_BOT_TOKEN`** и **`SUPABASE_SERVICE_ROLE_KEY`**
+   (в Vercel → Settings → Environment Variables). Без них Mini App не запустится.
+2. В [@BotFather](https://t.me/BotFather):
+   - `/newapp` → выберите бота → название, описание, картинку →
+     **Web App URL**: `https://ВАШ-САЙТ.vercel.app/tg`
+   - `/mybots` → ваш бот → **Bot Settings → Menu Button** → задайте тот же URL
+     и подпись кнопки, например «Заявки».
+3. Клиент открывает бота → жмёт кнопку меню → **один раз** вводит email и пароль
+   от кабинета (привязка Telegram к аккаунту) → дальше вход происходит автоматически.
+
+**Безопасность.** Telegram подписывает данные о пользователе секретом от токена
+бота; сервер проверяет подпись при каждом действии (`src/lib/telegram/verify.ts`).
+Подделать чужой аккаунт нельзя. Один Telegram — один аккаунт клиента.
 
 ---
 
@@ -104,9 +124,12 @@ npm run dev
 3. В **Environment Variables** добавьте те же переменные, что в `.env.local`:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY` (нужен для Telegram Mini App)
    - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (если используете)
    - `NEXT_PUBLIC_SITE_URL` — адрес сайта на Vercel, например `https://gsm.vercel.app`
+
+> После изменения переменных нужен **Redeploy** (Deployments → «···» → Redeploy),
+> иначе новые значения не попадут в сборку.
 4. Нажмите **Deploy**.
 5. В Supabase → **Authentication → URL Configuration** добавьте адрес Vercel в
    **Site URL** и **Redirect URLs** (чтобы работали письма-подтверждения).

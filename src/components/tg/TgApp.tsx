@@ -1,0 +1,513 @@
+"use client";
+
+import { useCallback, useEffect, useState, useTransition } from "react";
+import { Logo } from "@/components/Logo";
+import { CATEGORIES, PRIORITIES, STATUS_COLORS, PRIORITY_COLORS } from "@/lib/constants";
+import {
+  tgLoad,
+  tgLink,
+  tgCreateTicket,
+  tgAddComment,
+  type TgState,
+} from "@/app/tg/actions";
+import type { Ticket, TicketStatus, TicketPriority } from "@/lib/types";
+
+type TelegramWebApp = {
+  initData: string;
+  ready: () => void;
+  expand: () => void;
+  MainButton?: { hide: () => void };
+};
+
+declare global {
+  interface Window {
+    Telegram?: { WebApp?: TelegramWebApp };
+  }
+}
+
+const inputCls =
+  "w-full rounded-xl border-[1.5px] border-[#dde9e5] bg-white px-4 py-3 text-[15px] text-ink outline-none focus:border-brand";
+
+export function TgApp() {
+  const [initData, setInitData] = useState<string | null>(null);
+  const [outside, setOutside] = useState(false);
+  const [state, setState] = useState<TgState | null>(null);
+  const [screen, setScreen] = useState<"list" | "new" | "detail">("list");
+  const [openId, setOpenId] = useState<number | null>(null);
+
+  // Инициализация Telegram Mini App
+  useEffect(() => {
+    const wa = window.Telegram?.WebApp;
+    if (!wa || !wa.initData) {
+      setOutside(true);
+      return;
+    }
+    wa.ready();
+    wa.expand();
+    setInitData(wa.initData);
+  }, []);
+
+  const reload = useCallback(async (data: string) => {
+    setState(await tgLoad(data));
+  }, []);
+
+  useEffect(() => {
+    if (initData) void reload(initData);
+  }, [initData, reload]);
+
+  if (outside) {
+    return (
+      <Shell>
+        <div className="rounded-2xl border border-line bg-white p-6 text-center">
+          <div className="mb-2 text-lg font-extrabold">Откройте в Telegram</div>
+          <p className="text-sm text-muted">
+            Это приложение работает внутри Telegram. Найдите нашего бота и
+            нажмите кнопку «Заявки».
+          </p>
+          <a
+            href="/"
+            className="mt-4 inline-block rounded-xl bg-brand px-5 py-2.5 text-sm font-bold text-white"
+          >
+            Перейти на сайт
+          </a>
+        </div>
+      </Shell>
+    );
+  }
+
+  if (!state) {
+    return (
+      <Shell>
+        <div className="py-16 text-center text-sm text-muted">Загрузка…</div>
+      </Shell>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <Shell>
+        <div className="rounded-2xl bg-[#fbe3e3] p-5 text-center text-sm font-semibold text-[#d64545]">
+          {state.message}
+        </div>
+      </Shell>
+    );
+  }
+
+  if (state.status === "not_linked") {
+    return (
+      <Shell>
+        <LinkForm
+          initData={initData!}
+          onLinked={() => initData && reload(initData)}
+        />
+      </Shell>
+    );
+  }
+
+  const { profile, tickets } = state;
+  const openTicket = tickets.find((t) => t.id === openId) ?? null;
+
+  return (
+    <Shell>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-[15px] font-extrabold">
+            {profile.full_name ?? "Клиент"}
+          </div>
+          <div className="truncate text-xs text-muted">
+            {profile.company_name}
+            {profile.position ? ` · ${profile.position}` : ""}
+          </div>
+        </div>
+        {screen === "list" ? (
+          <button
+            onClick={() => setScreen("new")}
+            className="shrink-0 rounded-full bg-brand px-4 py-2 text-[13px] font-bold text-white"
+          >
+            + Заявка
+          </button>
+        ) : (
+          <button
+            onClick={() => {
+              setScreen("list");
+              setOpenId(null);
+            }}
+            className="shrink-0 rounded-full border-[1.5px] border-[#dde9e5] px-4 py-2 text-[13px] font-bold text-slate"
+          >
+            ← Назад
+          </button>
+        )}
+      </div>
+
+      {screen === "new" && (
+        <NewTicketForm
+          initData={initData!}
+          onDone={async () => {
+            setScreen("list");
+            if (initData) await reload(initData);
+          }}
+        />
+      )}
+
+      {screen === "detail" && openTicket && (
+        <TicketDetail
+          initData={initData!}
+          ticket={openTicket}
+          onChanged={() => initData && reload(initData)}
+        />
+      )}
+
+      {screen === "list" && (
+        <TicketList
+          tickets={tickets}
+          onOpen={(id) => {
+            setOpenId(id);
+            setScreen("detail");
+          }}
+        />
+      )}
+    </Shell>
+  );
+}
+
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen bg-canvas px-4 py-4">
+      <div className="mx-auto max-w-[520px]">
+        <div className="mb-4 flex items-center gap-2.5">
+          <Logo size={32} />
+          <div className="leading-tight">
+            <div className="text-[13px] font-extrabold">GSM Developer</div>
+            <div className="text-[9px] font-semibold tracking-[1.5px] text-muted">
+              ЗАЯВКИ 1С
+            </div>
+          </div>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function LinkForm({
+  initData,
+  onLinked,
+}: {
+  initData: string;
+  onLinked: () => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    startTransition(async () => {
+      const res = await tgLink(initData, email, password);
+      if (res.error) setError(res.error);
+      else onLinked();
+    });
+  };
+
+  return (
+    <form onSubmit={submit} className="rounded-2xl border border-line bg-white p-5">
+      <div className="mb-1 text-lg font-extrabold">Привязка аккаунта</div>
+      <p className="mb-4 text-sm text-muted">
+        Войдите один раз — дальше приложение будет открываться сразу.
+      </p>
+      <div className="flex flex-col gap-3">
+        <input
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className={inputCls}
+        />
+        <input
+          type="password"
+          autoComplete="current-password"
+          placeholder="Пароль"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className={inputCls}
+        />
+        {error && (
+          <div className="rounded-lg bg-[#fbe3e3] px-3 py-2 text-sm font-semibold text-[#d64545]">
+            {error}
+          </div>
+        )}
+        <button
+          type="submit"
+          disabled={pending}
+          className="rounded-xl bg-brand py-3.5 text-[15px] font-bold text-white disabled:opacity-60"
+        >
+          {pending ? "Проверяем…" : "Привязать"}
+        </button>
+      </div>
+      <p className="mt-3 text-[11px] text-muted">
+        Нет аккаунта? Зарегистрируйтесь на сайте gsm-sait.vercel.app, затем
+        вернитесь сюда.
+      </p>
+    </form>
+  );
+}
+
+function TicketList({
+  tickets,
+  onOpen,
+}: {
+  tickets: Ticket[];
+  onOpen: (id: number) => void;
+}) {
+  if (!tickets.length) {
+    return (
+      <div className="rounded-2xl border border-line bg-white p-10 text-center text-sm text-[#9db3ac]">
+        Заявок пока нет.
+        <br />
+        Нажмите «+ Заявка», чтобы создать первую.
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2.5">
+      {tickets.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => onOpen(t.id)}
+          className="rounded-2xl border border-line bg-white p-4 text-left active:border-brand"
+        >
+          <div className="mb-1.5 flex items-start justify-between gap-2">
+            <div className="text-[15px] font-bold">{t.title}</div>
+            <Badge kind="status" value={t.status} />
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted">
+            <span className="font-bold text-[#9db3ac]">#{t.id}</span>
+            <span>{t.category}</span>
+            <Badge kind="priority" value={t.priority} small />
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function TicketDetail({
+  initData,
+  ticket,
+  onChanged,
+}: {
+  initData: string;
+  ticket: Ticket;
+  onChanged: () => void;
+}) {
+  const [comment, setComment] = useState("");
+  const [pending, startTransition] = useTransition();
+
+  const comments = [...(ticket.ticket_comments ?? [])].sort((a, b) =>
+    a.created_at.localeCompare(b.created_at)
+  );
+
+  const send = (e: React.FormEvent) => {
+    e.preventDefault();
+    const text = comment.trim();
+    if (!text) return;
+    startTransition(async () => {
+      await tgAddComment(initData, ticket.id, text);
+      setComment("");
+      onChanged();
+    });
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="rounded-2xl border border-line bg-white p-4">
+        <div className="mb-2 flex items-start justify-between gap-2">
+          <div className="text-[16px] font-extrabold">{ticket.title}</div>
+          <Badge kind="status" value={ticket.status} />
+        </div>
+        <div className="mb-3 flex flex-wrap gap-2 text-xs text-muted">
+          <span className="font-bold text-[#9db3ac]">#{ticket.id}</span>
+          <span>{ticket.category}</span>
+          <Badge kind="priority" value={ticket.priority} small />
+          <span>Исполнитель: {ticket.assignee}</span>
+        </div>
+        {ticket.description && (
+          <p className="text-sm leading-relaxed text-[#2b3d37]">
+            {ticket.description}
+          </p>
+        )}
+      </div>
+
+      <div className="rounded-2xl border border-line bg-white p-4">
+        <div className="mb-2.5 text-[13px] font-extrabold">Переписка</div>
+        <div className="mb-3 flex flex-col gap-2">
+          {comments.length === 0 && (
+            <div className="text-[13px] text-muted">Сообщений пока нет.</div>
+          )}
+          {comments.map((c) => (
+            <div
+              key={c.id}
+              className="rounded-xl px-3 py-2"
+              style={{
+                background: c.is_client ? "#eaf6f3" : "#f4f9f7",
+                border: `1px solid ${c.is_client ? "#cbe6e0" : "#e6efec"}`,
+              }}
+            >
+              <div className="mb-0.5 flex justify-between gap-2">
+                <b className="text-[13px]">{c.author_name}</b>
+                <span className="text-[11px] text-[#9db3ac]">
+                  {new Date(c.created_at).toLocaleString("ru-RU", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+              </div>
+              <div className="text-sm leading-snug text-[#2b3d37]">{c.body}</div>
+            </div>
+          ))}
+        </div>
+        <form onSubmit={send} className="flex gap-2">
+          <input
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="Сообщение…"
+            className={inputCls}
+          />
+          <button
+            type="submit"
+            disabled={pending}
+            className="shrink-0 rounded-xl bg-ink px-4 font-bold text-white disabled:opacity-50"
+          >
+            →
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function NewTicketForm({
+  initData,
+  onDone,
+}: {
+  initData: string;
+  onDone: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState<string>("Доработка");
+  const [priority, setPriority] = useState<string>("Средний");
+  const [description, setDescription] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    startTransition(async () => {
+      const res = await tgCreateTicket(initData, {
+        title,
+        category,
+        priority,
+        description,
+      });
+      if (res.error) setError(res.error);
+      else onDone();
+    });
+  };
+
+  return (
+    <form
+      onSubmit={submit}
+      className="flex flex-col gap-3 rounded-2xl border border-line bg-white p-5"
+    >
+      <div className="text-lg font-extrabold">Новая заявка</div>
+      <div>
+        <label className="mb-1.5 block text-[13px] font-bold">Заголовок *</label>
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Кратко о задаче"
+          className={inputCls}
+        />
+      </div>
+      <div>
+        <label className="mb-1.5 block text-[13px] font-bold">Категория</label>
+        <select
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          className={inputCls}
+        >
+          {CATEGORIES.map((c) => (
+            <option key={c}>{c}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="mb-1.5 block text-[13px] font-bold">Приоритет</label>
+        <select
+          value={priority}
+          onChange={(e) => setPriority(e.target.value)}
+          className={inputCls}
+        >
+          {PRIORITIES.map((p) => (
+            <option key={p}>{p}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="mb-1.5 block text-[13px] font-bold">Описание</label>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={4}
+          placeholder="Опишите, что нужно сделать"
+          className={`${inputCls} resize-none`}
+        />
+      </div>
+      {error && (
+        <div className="rounded-lg bg-[#fbe3e3] px-3 py-2 text-sm font-semibold text-[#d64545]">
+          {error}
+        </div>
+      )}
+      <button
+        type="submit"
+        disabled={pending}
+        className="rounded-xl bg-brand py-3.5 text-[15px] font-bold text-white disabled:opacity-60"
+      >
+        {pending ? "Отправляем…" : "Создать заявку"}
+      </button>
+    </form>
+  );
+}
+
+function Badge({
+  kind,
+  value,
+  small,
+}: {
+  kind: "status" | "priority";
+  value: string;
+  small?: boolean;
+}) {
+  const map =
+    kind === "status"
+      ? STATUS_COLORS[value as TicketStatus]
+      : PRIORITY_COLORS[value as TicketPriority];
+  const [color, bg] = map ?? ["#6f887f", "#e7eeeb"];
+  return (
+    <span
+      style={{ background: bg, color }}
+      className={`shrink-0 whitespace-nowrap rounded-full font-bold ${
+        small ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-[11px]"
+      }`}
+    >
+      {value}
+    </span>
+  );
+}

@@ -21,6 +21,10 @@ create table if not exists public.profiles (
 );
 -- для уже созданных проектов
 alter table public.profiles add column if not exists position text;
+-- привязка Telegram-аккаунта (для Mini App)
+alter table public.profiles add column if not exists telegram_id bigint;
+create unique index if not exists profiles_telegram_id_key
+  on public.profiles(telegram_id) where telegram_id is not null;
 
 create table if not exists public.tickets (
   id          bigint generated always as identity (start with 1043) primary key,
