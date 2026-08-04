@@ -26,6 +26,13 @@ alter table public.profiles add column if not exists telegram_id bigint;
 create unique index if not exists profiles_telegram_id_key
   on public.profiles(telegram_id) where telegram_id is not null;
 
+-- Телефон в молдавском формате: +373 и 8 цифр (первая — 2..9).
+-- Хранится нормализованным: +373XXXXXXXX
+alter table public.profiles add column if not exists phone text;
+alter table public.profiles drop constraint if exists profiles_phone_md;
+alter table public.profiles add constraint profiles_phone_md
+  check (phone is null or phone ~ '^\+373[2-9][0-9]{7}$');
+
 create table if not exists public.tickets (
   id          bigint generated always as identity (start with 1043) primary key,
   title       text not null,
@@ -63,10 +70,14 @@ create table if not exists public.ticket_attachments (
   ticket_id  bigint not null references public.tickets(id) on delete cascade,
   type       text not null check (type in ('image','file','link')),
   name       text not null,
-  url        text,
+  url        text,            -- для type='link' — сама ссылка
+  storage_path text,          -- для загруженных файлов — путь в бакете ticket-files
+  size_bytes bigint,
   created_at timestamptz not null default now()
 );
 create index if not exists attachments_ticket_idx on public.ticket_attachments(ticket_id);
+alter table public.ticket_attachments add column if not exists storage_path text;
+alter table public.ticket_attachments add column if not exists size_bytes bigint;
 
 -- Заявки с лендинга (публичная форма «Оставьте заявку»)
 create table if not exists public.leads (
@@ -111,6 +122,8 @@ returns trigger language plpgsql security definer set search_path = public as $$
 declare
   v_company text := nullif(trim(new.raw_user_meta_data ->> 'company_name'), '');
   v_name    text := nullif(trim(new.raw_user_meta_data ->> 'full_name'), '');
+  v_phone   text := nullif(trim(new.raw_user_meta_data ->> 'phone'), '');
+  v_pos     text := nullif(trim(new.raw_user_meta_data ->> 'position'), '');
   v_cid     uuid;
 begin
   if v_company is not null then
@@ -119,8 +132,9 @@ begin
     select id into v_cid from public.companies where name = v_company;
   end if;
 
-  insert into public.profiles(id, full_name, company_id, role)
-  values (new.id, coalesce(v_name, split_part(new.email, '@', 1)), v_cid, 'client');
+  insert into public.profiles(id, full_name, company_id, role, phone, position)
+  values (new.id, coalesce(v_name, split_part(new.email, '@', 1)), v_cid, 'client',
+          v_phone, v_pos);
 
   return new;
 end;
@@ -149,13 +163,15 @@ create trigger tickets_touch
 -- SECURITY DEFINER: позволяет и клиенту, и админу привязать/создать компанию
 -- по названию, не нарушая RLS. Меняет только профиль текущего пользователя.
 drop function if exists public.update_my_profile(text, text);
+drop function if exists public.update_my_profile(text, text, text);
 create or replace function public.update_my_profile(
-  p_full_name text, p_company text, p_position text
+  p_full_name text, p_company text, p_position text, p_phone text
 )
 returns void language plpgsql security definer set search_path = public as $$
 declare
   v_name    text := nullif(trim(p_full_name), '');
   v_company text := nullif(trim(p_company), '');
+  v_phone   text := nullif(trim(p_phone), '');
   v_cid     uuid;
 begin
   if auth.uid() is null then
@@ -171,7 +187,8 @@ begin
   update public.profiles
   set full_name  = coalesce(v_name, full_name),
       company_id = coalesce(v_cid, company_id),
-      position   = nullif(trim(p_position), '')
+      position   = nullif(trim(p_position), ''),
+      phone      = coalesce(v_phone, phone)
   where id = auth.uid();
 end;
 $$;
@@ -234,6 +251,27 @@ create policy attachments_select on public.ticket_attachments for select to auth
 drop policy if exists attachments_insert on public.ticket_attachments;
 create policy attachments_insert on public.ticket_attachments for insert to authenticated
   with check (public.can_access_ticket(ticket_id));
+
+-- ── Хранилище файлов заявок (Supabase Storage) ──────────────────────────────
+-- Приватный бакет: доступ только через политики ниже или подписанные ссылки.
+-- Путь файла: {ticket_id}/{случайное_имя} — по первой папке проверяем права.
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('ticket-files', 'ticket-files', false, 20971520)  -- 20 МБ
+on conflict (id) do nothing;
+
+drop policy if exists ticket_files_select on storage.objects;
+create policy ticket_files_select on storage.objects for select to authenticated
+  using (
+    bucket_id = 'ticket-files'
+    and public.can_access_ticket(((storage.foldername(name))[1])::bigint)
+  );
+
+drop policy if exists ticket_files_insert on storage.objects;
+create policy ticket_files_insert on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'ticket-files'
+    and public.can_access_ticket(((storage.foldername(name))[1])::bigint)
+  );
 
 -- leads: любой может оставить заявку с лендинга, читает только админ
 drop policy if exists leads_insert on public.leads;

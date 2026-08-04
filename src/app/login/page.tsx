@@ -43,6 +43,14 @@ export default function LoginPage() {
             <>
               <input name="full_name" placeholder="Ваше имя" required className={inputCls} />
               <input name="company_name" placeholder="Название компании" required className={inputCls} />
+              <input
+                name="phone"
+                type="tel"
+                inputMode="tel"
+                placeholder="Телефон: +373 69 123 456"
+                required
+                className={inputCls}
+              />
             </>
           )}
           <input name="email" type="email" placeholder="Email" required className={inputCls} autoComplete="email" />

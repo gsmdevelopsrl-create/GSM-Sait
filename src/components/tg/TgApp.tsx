@@ -1,14 +1,36 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { Logo } from "@/components/Logo";
-import { CATEGORIES, PRIORITIES, STATUS_COLORS, PRIORITY_COLORS } from "@/lib/constants";
+import { createClient } from "@/lib/supabase/client";
+import {
+  CATEGORIES,
+  PRIORITIES,
+  STATUSES,
+  STATUS_COLORS,
+  PRIORITY_COLORS,
+  attachmentIcon,
+} from "@/lib/constants";
+import {
+  BUCKET,
+  MAX_FILE_BYTES,
+  attachmentTypeOf,
+  humanSize,
+} from "@/lib/attachments";
+import { MD_PHONE_HINT } from "@/lib/phone";
 import {
   tgLoad,
   tgLink,
   tgCreateTicket,
+  tgUpdateTicket,
   tgAddComment,
+  tgSetStatus,
+  tgSetAssignee,
+  tgCreateUpload,
+  tgRegisterAttachment,
+  tgSavePhone,
   type TgState,
+  type TgProfile,
 } from "@/app/tg/actions";
 import type { Ticket, TicketStatus, TicketPriority } from "@/lib/types";
 
@@ -16,7 +38,6 @@ type TelegramWebApp = {
   initData: string;
   ready: () => void;
   expand: () => void;
-  MainButton?: { hide: () => void };
 };
 
 declare global {
@@ -28,6 +49,40 @@ declare global {
 const inputCls =
   "w-full rounded-xl border-[1.5px] border-[#dde9e5] bg-white px-4 py-3 text-[15px] text-ink outline-none focus:border-brand";
 
+/** Загружает файлы в хранилище и привязывает их к заявке. */
+async function uploadFiles(
+  initData: string,
+  ticketId: number,
+  files: File[],
+  onError: (m: string) => void
+) {
+  const supabase = createClient();
+  for (const file of files) {
+    if (file.size > MAX_FILE_BYTES) {
+      onError(`«${file.name}» больше 20 МБ`);
+      continue;
+    }
+    const prep = await tgCreateUpload(initData, ticketId, file.name);
+    if (prep.error || !prep.path || !prep.token) {
+      onError(prep.error ?? "Не удалось подготовить загрузку");
+      continue;
+    }
+    const { error } = await supabase.storage
+      .from(BUCKET)
+      .uploadToSignedUrl(prep.path, prep.token, file);
+    if (error) {
+      onError(`Не удалось загрузить «${file.name}»`);
+      continue;
+    }
+    await tgRegisterAttachment(initData, ticketId, {
+      type: attachmentTypeOf(file.type),
+      name: file.name,
+      storagePath: prep.path,
+      size: file.size,
+    });
+  }
+}
+
 export function TgApp() {
   const [initData, setInitData] = useState<string | null>(null);
   const [outside, setOutside] = useState(false);
@@ -35,7 +90,6 @@ export function TgApp() {
   const [screen, setScreen] = useState<"list" | "new" | "detail">("list");
   const [openId, setOpenId] = useState<number | null>(null);
 
-  // Инициализация Telegram Mini App
   useEffect(() => {
     const wa = window.Telegram?.WebApp;
     if (!wa || !wa.initData) {
@@ -104,8 +158,21 @@ export function TgApp() {
     );
   }
 
-  const { profile, tickets } = state;
+  const { profile, tickets, team } = state;
   const openTicket = tickets.find((t) => t.id === openId) ?? null;
+  const isAdmin = profile.role === "admin";
+
+  // Телефон обязателен — просим заполнить, если его нет
+  if (!profile.phone) {
+    return (
+      <Shell>
+        <PhoneForm
+          initData={initData!}
+          onSaved={() => initData && reload(initData)}
+        />
+      </Shell>
+    );
+  }
 
   return (
     <Shell>
@@ -113,6 +180,11 @@ export function TgApp() {
         <div className="min-w-0">
           <div className="truncate text-[15px] font-extrabold">
             {profile.full_name ?? "Клиент"}
+            {isAdmin && (
+              <span className="ml-1.5 rounded-full bg-mint px-2 py-0.5 text-[10px] font-bold text-brand-dark">
+                АДМИН
+              </span>
+            )}
           </div>
           <div className="truncate text-xs text-muted">
             {profile.company_name}
@@ -153,6 +225,8 @@ export function TgApp() {
         <TicketDetail
           initData={initData!}
           ticket={openTicket}
+          profile={profile}
+          team={team}
           onChanged={() => initData && reload(initData)}
         />
       )}
@@ -160,6 +234,7 @@ export function TgApp() {
       {screen === "list" && (
         <TicketList
           tickets={tickets}
+          isAdmin={isAdmin}
           onOpen={(id) => {
             setOpenId(id);
             setScreen("detail");
@@ -186,6 +261,59 @@ function Shell({ children }: { children: React.ReactNode }) {
         {children}
       </div>
     </div>
+  );
+}
+
+function PhoneForm({
+  initData,
+  onSaved,
+}: {
+  initData: string;
+  onSaved: () => void;
+}) {
+  const [phone, setPhone] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    startTransition(async () => {
+      const res = await tgSavePhone(initData, phone);
+      if (res.error) setError(res.error);
+      else onSaved();
+    });
+  };
+
+  return (
+    <form onSubmit={submit} className="rounded-2xl border border-line bg-white p-5">
+      <div className="mb-1 text-lg font-extrabold">Укажите телефон</div>
+      <p className="mb-4 text-sm text-muted">
+        Нужен для связи по заявкам. {MD_PHONE_HINT}
+      </p>
+      <div className="flex flex-col gap-3">
+        <input
+          type="tel"
+          inputMode="tel"
+          placeholder="+373 69 123 456"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          className={inputCls}
+        />
+        {error && (
+          <div className="rounded-lg bg-[#fbe3e3] px-3 py-2 text-sm font-semibold text-[#d64545]">
+            {error}
+          </div>
+        )}
+        <button
+          type="submit"
+          disabled={pending}
+          className="rounded-xl bg-brand py-3.5 text-[15px] font-bold text-white disabled:opacity-60"
+        >
+          {pending ? "Сохраняем…" : "Сохранить"}
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -258,9 +386,11 @@ function LinkForm({
 
 function TicketList({
   tickets,
+  isAdmin,
   onOpen,
 }: {
   tickets: Ticket[];
+  isAdmin: boolean;
   onOpen: (id: number) => void;
 }) {
   if (!tickets.length) {
@@ -284,10 +414,14 @@ function TicketList({
             <div className="text-[15px] font-bold">{t.title}</div>
             <Badge kind="status" value={t.status} />
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
             <span className="font-bold text-[#9db3ac]">#{t.id}</span>
+            {isAdmin && t.company?.name && <span>{t.company.name}</span>}
             <span>{t.category}</span>
             <Badge kind="priority" value={t.priority} small />
+            {(t.ticket_attachments?.length ?? 0) > 0 && (
+              <span>📎 {t.ticket_attachments!.length}</span>
+            )}
           </div>
         </button>
       ))}
@@ -298,18 +432,29 @@ function TicketList({
 function TicketDetail({
   initData,
   ticket,
+  profile,
+  team,
   onChanged,
 }: {
   initData: string;
   ticket: Ticket;
+  profile: TgProfile;
+  team: string[];
   onChanged: () => void;
 }) {
   const [comment, setComment] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const isAdmin = profile.role === "admin";
+  const canEdit = isAdmin || ticket.status === "Новая";
 
   const comments = [...(ticket.ticket_comments ?? [])].sort((a, b) =>
     a.created_at.localeCompare(b.created_at)
   );
+  const attachments = ticket.ticket_attachments ?? [];
 
   const send = (e: React.FormEvent) => {
     e.preventDefault();
@@ -322,6 +467,35 @@ function TicketDetail({
     });
   };
 
+  const attach = (files: FileList | null) => {
+    if (!files?.length) return;
+    setError(null);
+    startTransition(async () => {
+      await uploadFiles(initData, ticket.id, Array.from(files), setError);
+      if (fileRef.current) fileRef.current.value = "";
+      onChanged();
+    });
+  };
+
+  if (editing) {
+    return (
+      <TicketForm
+        title="Изменить заявку"
+        initial={ticket}
+        pendingLabel="Сохраняем…"
+        submitLabel="Сохранить"
+        onCancel={() => setEditing(false)}
+        onSubmit={async (v) => {
+          const res = await tgUpdateTicket(initData, ticket.id, v);
+          if (res.error) return res.error;
+          setEditing(false);
+          onChanged();
+          return null;
+        }}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col gap-3">
       <div className="rounded-2xl border border-line bg-white p-4">
@@ -331,16 +505,141 @@ function TicketDetail({
         </div>
         <div className="mb-3 flex flex-wrap gap-2 text-xs text-muted">
           <span className="font-bold text-[#9db3ac]">#{ticket.id}</span>
+          {isAdmin && ticket.company?.name && <span>{ticket.company.name}</span>}
           <span>{ticket.category}</span>
           <Badge kind="priority" value={ticket.priority} small />
           <span>Исполнитель: {ticket.assignee}</span>
         </div>
         {ticket.description && (
-          <p className="text-sm leading-relaxed text-[#2b3d37]">
+          <p className="mb-3 text-sm leading-relaxed text-[#2b3d37]">
             {ticket.description}
           </p>
         )}
+
+        {attachments.length > 0 && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {attachments.map((a) => {
+              const inner = (
+                <>
+                  {attachmentIcon(a.type)} {a.name}
+                  {a.size_bytes ? (
+                    <span className="font-normal text-muted">
+                      {humanSize(a.size_bytes)}
+                    </span>
+                  ) : null}
+                </>
+              );
+              const cls =
+                "flex items-center gap-1.5 rounded-[9px] border border-[#dde9e5] bg-[#f4f9f7] px-3 py-2 text-[13px] font-semibold";
+              const href = a.signedUrl ?? a.url;
+              return href ? (
+                <a
+                  key={a.id}
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={cls}
+                >
+                  {inner}
+                </a>
+              ) : (
+                <span key={a.id} className={`${cls} opacity-60`}>
+                  {inner}
+                </span>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => fileRef.current?.click()}
+            className="rounded-[10px] border-[1.5px] border-dashed border-[#b7d5cd] bg-[#f4f9f7] px-3.5 py-2 text-[13px] font-semibold disabled:opacity-60"
+          >
+            {pending ? "Загружаем…" : "📎 Прикрепить файл"}
+          </button>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="rounded-[10px] border-[1.5px] border-[#dde9e5] bg-white px-3.5 py-2 text-[13px] font-semibold text-slate"
+            >
+              ✏️ Изменить
+            </button>
+          )}
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => attach(e.target.files)}
+          />
+        </div>
+        {!canEdit && (
+          <p className="mt-2 text-[11px] text-muted">
+            Заявка уже в работе — изменить её нельзя. Пишите в переписке.
+          </p>
+        )}
+        {error && (
+          <div className="mt-2 text-[12px] font-semibold text-[#d64545]">
+            {error}
+          </div>
+        )}
       </div>
+
+      {isAdmin && (
+        <div className="rounded-2xl border-[1.5px] border-[#cbe6e0] bg-[#f4f9f7] p-4">
+          <div className="mb-3 text-[13px] font-extrabold text-brand-dark">
+            Панель администратора
+          </div>
+          <div className="mb-1.5 text-xs font-bold text-muted">Статус</div>
+          <div className="mb-3.5 flex flex-wrap gap-2">
+            {STATUSES.map((s) => {
+              const active = ticket.status === s;
+              return (
+                <button
+                  key={s}
+                  disabled={pending}
+                  onClick={() =>
+                    startTransition(async () => {
+                      await tgSetStatus(initData, ticket.id, s as TicketStatus);
+                      onChanged();
+                    })
+                  }
+                  className="rounded-[9px] px-3 py-2 text-[13px] font-bold disabled:opacity-50"
+                  style={{
+                    border: `1.5px solid ${active ? "#0f9d8c" : "#dde9e5"}`,
+                    background: active ? "#d6f0eb" : "#fff",
+                    color: active ? "#0c7d70" : "#42574f",
+                  }}
+                >
+                  {s}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mb-1.5 text-xs font-bold text-muted">Исполнитель</div>
+          <select
+            defaultValue={ticket.assignee}
+            disabled={pending}
+            onChange={(e) =>
+              startTransition(async () => {
+                await tgSetAssignee(initData, ticket.id, e.target.value);
+                onChanged();
+              })
+            }
+            className={inputCls}
+          >
+            {(team.length ? team : ["—"]).map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="rounded-2xl border border-line bg-white p-4">
         <div className="mb-2.5 text-[13px] font-extrabold">Переписка</div>
@@ -392,17 +691,34 @@ function TicketDetail({
   );
 }
 
-function NewTicketForm({
-  initData,
-  onDone,
+type FormValues = {
+  title: string;
+  category: string;
+  priority: string;
+  description: string;
+};
+
+function TicketForm({
+  title: heading,
+  initial,
+  submitLabel,
+  pendingLabel,
+  onSubmit,
+  onCancel,
+  extra,
 }: {
-  initData: string;
-  onDone: () => void;
+  title: string;
+  initial?: Partial<Ticket>;
+  submitLabel: string;
+  pendingLabel: string;
+  onSubmit: (v: FormValues) => Promise<string | null>;
+  onCancel?: () => void;
+  extra?: React.ReactNode;
 }) {
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState<string>("Доработка");
-  const [priority, setPriority] = useState<string>("Средний");
-  const [description, setDescription] = useState("");
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [category, setCategory] = useState<string>(initial?.category ?? "Доработка");
+  const [priority, setPriority] = useState<string>(initial?.priority ?? "Средний");
+  const [description, setDescription] = useState(initial?.description ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -410,14 +726,8 @@ function NewTicketForm({
     e.preventDefault();
     setError(null);
     startTransition(async () => {
-      const res = await tgCreateTicket(initData, {
-        title,
-        category,
-        priority,
-        description,
-      });
-      if (res.error) setError(res.error);
-      else onDone();
+      const err = await onSubmit({ title, category, priority, description });
+      if (err) setError(err);
     });
   };
 
@@ -426,7 +736,7 @@ function NewTicketForm({
       onSubmit={submit}
       className="flex flex-col gap-3 rounded-2xl border border-line bg-white p-5"
     >
-      <div className="text-lg font-extrabold">Новая заявка</div>
+      <div className="text-lg font-extrabold">{heading}</div>
       <div>
         <label className="mb-1.5 block text-[13px] font-bold">Заголовок *</label>
         <input
@@ -470,19 +780,96 @@ function NewTicketForm({
           className={`${inputCls} resize-none`}
         />
       </div>
+      {extra}
       {error && (
         <div className="rounded-lg bg-[#fbe3e3] px-3 py-2 text-sm font-semibold text-[#d64545]">
           {error}
         </div>
       )}
-      <button
-        type="submit"
-        disabled={pending}
-        className="rounded-xl bg-brand py-3.5 text-[15px] font-bold text-white disabled:opacity-60"
-      >
-        {pending ? "Отправляем…" : "Создать заявку"}
-      </button>
+      <div className="flex gap-2">
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 rounded-xl border-[1.5px] border-[#dde9e5] py-3 text-[15px] font-bold text-slate"
+          >
+            Отмена
+          </button>
+        )}
+        <button
+          type="submit"
+          disabled={pending}
+          className="flex-1 rounded-xl bg-brand py-3.5 text-[15px] font-bold text-white disabled:opacity-60"
+        >
+          {pending ? pendingLabel : submitLabel}
+        </button>
+      </div>
     </form>
+  );
+}
+
+function NewTicketForm({
+  initData,
+  onDone,
+}: {
+  initData: string;
+  onDone: () => void;
+}) {
+  const [files, setFiles] = useState<File[]>([]);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <TicketForm
+      title="Новая заявка"
+      submitLabel="Создать заявку"
+      pendingLabel="Отправляем…"
+      onSubmit={async (v) => {
+        const res = await tgCreateTicket(initData, v);
+        if (res.error || !res.ticketId) return res.error ?? "Не удалось создать заявку.";
+        if (files.length) {
+          await uploadFiles(initData, res.ticketId, files, () => {});
+        }
+        onDone();
+        return null;
+      }}
+      extra={
+        <div>
+          <label className="mb-1.5 block text-[13px] font-bold">Вложения</label>
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="rounded-[10px] border-[1.5px] border-dashed border-[#b7d5cd] bg-[#f4f9f7] px-4 py-2.5 text-[13px] font-semibold"
+          >
+            📎 Выбрать файлы
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              const list = e.target.files;
+              if (list?.length) setFiles((f) => [...f, ...Array.from(list)]);
+            }}
+          />
+          {files.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {files.map((f, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                  className="flex items-center gap-1.5 rounded-lg bg-mint px-3 py-1.5 text-[13px] font-semibold text-brand-dark"
+                >
+                  {attachmentTypeOf(f.type) === "image" ? "🖼" : "📎"} {f.name}
+                  <span className="opacity-60">✕</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      }
+    />
   );
 }
 

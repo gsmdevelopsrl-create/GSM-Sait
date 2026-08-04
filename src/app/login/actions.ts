@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { normalizeMdPhone, MD_PHONE_HINT } from "@/lib/phone";
 
 export type AuthState = { error?: string; info?: string };
 
@@ -34,12 +35,18 @@ export async function signUp(
   const companyName = String(formData.get("company_name") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
+  const phoneRaw = String(formData.get("phone") ?? "").trim();
 
-  if (!fullName || !companyName || !email || !password) {
+  if (!fullName || !companyName || !email || !password || !phoneRaw) {
     return { error: "Заполните все поля." };
   }
   if (password.length < 6) {
     return { error: "Пароль должен быть не короче 6 символов." };
+  }
+
+  const phone = normalizeMdPhone(phoneRaw);
+  if (!phone) {
+    return { error: `Неверный номер телефона. ${MD_PHONE_HINT}` };
   }
 
   const supabase = await createClient();
@@ -47,7 +54,7 @@ export async function signUp(
     email,
     password,
     options: {
-      data: { full_name: fullName, company_name: companyName },
+      data: { full_name: fullName, company_name: companyName, phone },
       emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/dashboard`,
     },
   });

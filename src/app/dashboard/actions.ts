@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { notify } from "@/lib/notify";
+import { normalizeMdPhone, MD_PHONE_HINT } from "@/lib/phone";
+import { BUCKET } from "@/lib/attachments";
 import type { AttachmentType, TicketStatus } from "@/lib/types";
 
 type Me = {
@@ -56,7 +58,7 @@ export type CreateTicketInput = {
 
 export async function createTicket(
   input: CreateTicketInput
-): Promise<{ error?: string }> {
+): Promise<{ error?: string; ticketId?: number }> {
   const me = await getMe();
   if (!me) return { error: "Сессия истекла, войдите заново." };
   if (!me.company_id)
@@ -103,7 +105,7 @@ export async function createTicket(
   });
 
   revalidatePath("/dashboard");
-  return {};
+  return { ticketId: ticket.id };
 }
 
 export async function changeStatus(
@@ -186,21 +188,122 @@ export async function updateProfile(input: {
   full_name: string;
   company: string;
   position: string;
+  phone: string;
 }): Promise<{ error?: string }> {
   const me = await getMe();
   if (!me) return { error: "Сессия истекла, войдите заново." };
   if (!input.full_name.trim()) return { error: "Укажите имя." };
+
+  const phone = normalizeMdPhone(input.phone);
+  if (!phone) return { error: `Неверный номер телефона. ${MD_PHONE_HINT}` };
 
   const supabase = await createClient();
   const { error } = await supabase.rpc("update_my_profile", {
     p_full_name: input.full_name,
     p_company: input.company,
     p_position: input.position,
+    p_phone: phone,
   });
 
   if (error) return { error: "Не удалось сохранить изменения." };
   revalidatePath("/dashboard");
   return {};
+}
+
+/**
+ * Правка заявки.
+ * Админ — всегда и все поля. Клиент — свою заявку, пока статус «Новая».
+ */
+export async function updateTicket(
+  ticketId: number,
+  input: {
+    title: string;
+    category: string;
+    priority: string;
+    description: string;
+    deadline: string;
+    estimate: string;
+  }
+): Promise<{ error?: string }> {
+  const me = await getMe();
+  if (!me) return { error: "Сессия истекла, войдите заново." };
+  if (!input.title.trim()) return { error: "Укажите заголовок." };
+
+  const supabase = await createClient();
+
+  const { data: t } = await supabase
+    .from("tickets")
+    .select("id, status, company_id")
+    .eq("id", ticketId)
+    .maybeSingle();
+  if (!t) return { error: "Заявка не найдена." };
+
+  if (me.role !== "admin") {
+    if (t.company_id !== me.company_id) return { error: "Нет доступа к заявке." };
+    if (t.status !== "Новая")
+      return {
+        error: "Заявку уже взяли в работу — изменить её нельзя. Напишите в переписке.",
+      };
+  }
+
+  const { error } = await supabase
+    .from("tickets")
+    .update({
+      title: input.title.trim(),
+      category: input.category,
+      priority: input.priority,
+      description: input.description.trim() || null,
+      deadline: input.deadline || null,
+      estimate: input.estimate ? Number(input.estimate) : null,
+    })
+    .eq("id", ticketId);
+
+  if (error) return { error: "Не удалось сохранить изменения." };
+  revalidatePath("/dashboard");
+  return {};
+}
+
+/** Запись о загруженном файле (сам файл клиент кладёт в Storage напрямую). */
+export async function registerAttachment(input: {
+  ticketId: number;
+  type: AttachmentType;
+  name: string;
+  storagePath?: string;
+  url?: string;
+  size?: number;
+}): Promise<{ error?: string }> {
+  const me = await getMe();
+  if (!me) return { error: "Сессия истекла." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("ticket_attachments").insert({
+    ticket_id: input.ticketId,
+    type: input.type,
+    name: input.name,
+    url: input.url ?? null,
+    storage_path: input.storagePath ?? null,
+    size_bytes: input.size ?? null,
+  });
+
+  if (error) return { error: "Не удалось прикрепить файл." };
+  revalidatePath("/dashboard");
+  return {};
+}
+
+/** Временная ссылка на скачивание вложения (действует 1 час). */
+export async function getAttachmentUrl(
+  storagePath: string
+): Promise<{ url?: string; error?: string }> {
+  const me = await getMe();
+  if (!me) return { error: "Сессия истекла." };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrl(storagePath, 3600);
+
+  if (error || !data) return { error: "Файл недоступен." };
+  return { url: data.signedUrl };
 }
 
 export async function updateCompany(input: {

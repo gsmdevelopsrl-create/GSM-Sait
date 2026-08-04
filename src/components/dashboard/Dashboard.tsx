@@ -16,6 +16,7 @@ type Me = {
   company: string;
   realCompany: string;
   position: string;
+  phone: string;
   ini: string;
   email: string;
 };
@@ -38,6 +39,7 @@ type Member = {
   id: string;
   full_name: string | null;
   position: string | null;
+  phone: string | null;
   role: string;
   company_id: string | null;
 };
@@ -259,6 +261,7 @@ export function Dashboard({
             name={me.name}
             company={me.realCompany}
             position={me.position}
+            phone={me.phone}
             email={me.email}
             ini={me.ini}
             isAdmin={isAdmin}

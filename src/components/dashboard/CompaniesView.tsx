@@ -10,6 +10,7 @@ type Member = {
   id: string;
   full_name: string | null;
   position: string | null;
+  phone: string | null;
   role: string;
   company_id: string | null;
 };

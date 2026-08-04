@@ -19,7 +19,7 @@ export default async function DashboardPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("full_name, position, role, company_id, companies(name)")
+    .select("full_name, position, phone, role, company_id, companies(name)")
     .eq("id", user.id)
     .single();
 
@@ -27,12 +27,14 @@ export default async function DashboardPage() {
     role?: "client" | "admin";
     full_name?: string | null;
     position?: string | null;
+    phone?: string | null;
     companies?: { name: string } | { name: string }[] | null;
   } | null;
   const role = p?.role ?? "client";
   const companyName = one<{ name: string }>(p?.companies ?? null)?.name ?? "—";
   const fullName = p?.full_name ?? "Пользователь";
   const position = p?.position ?? "";
+  const phone = p?.phone ?? "";
 
   const { data: raw } = await supabase
     .from("tickets")
@@ -40,7 +42,7 @@ export default async function DashboardPage() {
       `id, title, category, priority, status, description, deadline, estimate, assignee, created_at, company_id, author_id,
        companies(name),
        author:profiles!tickets_author_id_fkey(full_name),
-       ticket_attachments(id, ticket_id, type, name, url),
+       ticket_attachments(id, ticket_id, type, name, url, storage_path, size_bytes),
        ticket_comments(id, ticket_id, author_name, is_client, body, created_at)`
     )
     .order("created_at", { ascending: false });
@@ -63,11 +65,12 @@ export default async function DashboardPage() {
   // Сотрудники (профили): админ видит все, клиент — только себя (RLS).
   const { data: membersRaw } = await supabase
     .from("profiles")
-    .select("id, full_name, position, role, company_id");
+    .select("id, full_name, position, phone, role, company_id");
   const members = (membersRaw ?? []) as {
     id: string;
     full_name: string | null;
     position: string | null;
+    phone: string | null;
     role: string;
     company_id: string | null;
   }[];
@@ -80,6 +83,7 @@ export default async function DashboardPage() {
         company: role === "admin" ? "GSM Developer SRL" : companyName,
         realCompany: companyName === "—" ? "" : companyName,
         position,
+        phone,
         ini: role === "admin" ? "GS" : initials(fullName),
         email: user.email ?? "—",
       }}

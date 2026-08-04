@@ -13,6 +13,8 @@ export type AttachmentType = "image" | "file" | "link";
 export interface Profile {
   id: string;
   full_name: string | null;
+  position: string | null;
+  phone: string | null;
   company_id: string | null;
   role: Role;
   company?: { name: string } | null;
@@ -24,6 +26,10 @@ export interface Attachment {
   type: AttachmentType;
   name: string;
   url: string | null;
+  storage_path?: string | null;
+  size_bytes?: number | null;
+  /** Временная ссылка для скачивания, генерируется на сервере */
+  signedUrl?: string | null;
 }
 
 export interface Comment {

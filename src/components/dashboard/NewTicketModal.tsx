@@ -2,10 +2,22 @@
 
 import { useRef, useState, useTransition } from "react";
 import { CATEGORIES, PRIORITIES, attachmentIcon } from "@/lib/constants";
-import { createTicket } from "@/app/dashboard/actions";
+import { createTicket, registerAttachment } from "@/app/dashboard/actions";
+import { createClient } from "@/lib/supabase/client";
+import {
+  BUCKET,
+  MAX_FILE_BYTES,
+  attachmentTypeOf,
+  buildStoragePath,
+} from "@/lib/attachments";
 import type { AttachmentType } from "@/lib/types";
 
-type Draft = { type: AttachmentType; name: string; url?: string };
+type Draft = {
+  type: AttachmentType;
+  name: string;
+  url?: string;
+  file?: File;
+};
 
 const inputCls =
   "w-full rounded-[11px] border-[1.5px] border-[#dde9e5] px-3.5 py-3 text-sm outline-none focus:border-brand";
@@ -23,7 +35,15 @@ export function NewTicketModal({ onClose }: { onClose: () => void }) {
 
   const addFile = (type: AttachmentType, list: FileList | null) => {
     if (!list?.length) return;
-    setDraft((d) => [...d, { type, name: list[0].name }]);
+    const next: Draft[] = [];
+    for (const file of Array.from(list)) {
+      if (file.size > MAX_FILE_BYTES) {
+        setError(`«${file.name}» больше 20 МБ`);
+        continue;
+      }
+      next.push({ type: attachmentTypeOf(file.type) || type, name: file.name, file });
+    }
+    setDraft((d) => [...d, ...next]);
   };
 
   const addLink = () => {
@@ -40,6 +60,7 @@ export function NewTicketModal({ onClose }: { onClose: () => void }) {
     setError(null);
     const fd = new FormData(e.currentTarget);
     startTransition(async () => {
+      // Ссылки уходят вместе с заявкой, файлы загружаем следом
       const res = await createTicket({
         title: String(fd.get("title") ?? ""),
         category: String(fd.get("category") ?? "Доработка"),
@@ -47,10 +68,35 @@ export function NewTicketModal({ onClose }: { onClose: () => void }) {
         deadline: String(fd.get("deadline") ?? ""),
         estimate: String(fd.get("estimate") ?? ""),
         description: String(fd.get("description") ?? ""),
-        attachments: draft,
+        attachments: draft
+          .filter((a) => !a.file)
+          .map((a) => ({ type: a.type, name: a.name, url: a.url })),
       });
-      if (res.error) setError(res.error);
-      else onClose();
+
+      if (res.error || !res.ticketId) {
+        setError(res.error ?? "Не удалось создать заявку.");
+        return;
+      }
+
+      const files = draft.filter((a) => a.file);
+      if (files.length) {
+        const supabase = createClient();
+        for (const a of files) {
+          const path = buildStoragePath(res.ticketId, a.name);
+          const { error: upErr } = await supabase.storage
+            .from(BUCKET)
+            .upload(path, a.file!, { upsert: false });
+          if (upErr) continue;
+          await registerAttachment({
+            ticketId: res.ticketId,
+            type: a.type,
+            name: a.name,
+            storagePath: path,
+            size: a.file!.size,
+          });
+        }
+      }
+      onClose();
     });
   };
 

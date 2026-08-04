@@ -3,12 +3,14 @@
 import { useState, useTransition } from "react";
 import { STATUSES, STATUS_COLORS, initials } from "@/lib/constants";
 import { updateCompany } from "@/app/dashboard/actions";
+import { formatMdPhone } from "@/lib/phone";
 import type { Ticket, TicketStatus } from "@/lib/types";
 
 type Member = {
   id: string;
   full_name: string | null;
   position: string | null;
+  phone: string | null;
   role: string;
 };
 
@@ -176,6 +178,19 @@ export function CompanyModal({
                         placeholder="Должность (напр. бухгалтер)"
                         className={inputCls}
                       />
+                    </div>
+                    <div className="mt-2 text-[12px] text-muted">
+                      📞{" "}
+                      {m.phone ? (
+                        <a
+                          href={`tel:${m.phone}`}
+                          className="font-semibold text-brand-dark"
+                        >
+                          {formatMdPhone(m.phone)}
+                        </a>
+                      ) : (
+                        <span className="text-[#9db3ac]">телефон не указан</span>
+                      )}
                     </div>
                   </div>
                 ))}

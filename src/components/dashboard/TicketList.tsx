@@ -1,15 +1,142 @@
 "use client";
 
 import { useState, useTransition, type CSSProperties } from "react";
+import { useRouter } from "next/navigation";
 import {
   STATUSES,
   STATUS_COLORS,
   PRIORITY_COLORS,
+  CATEGORIES,
+  PRIORITIES,
   TEAM,
-  attachmentIcon,
 } from "@/lib/constants";
-import { changeStatus, changeAssignee, addComment } from "@/app/dashboard/actions";
+import {
+  changeStatus,
+  changeAssignee,
+  addComment,
+  updateTicket,
+} from "@/app/dashboard/actions";
+import { AttachmentChips, AddAttachment } from "./AttachmentChips";
 import type { Ticket, TicketStatus } from "@/lib/types";
+
+function TicketEditForm({
+  t,
+  onCancel,
+  onSaved,
+}: {
+  t: Ticket;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const [title, setTitle] = useState(t.title);
+  const [category, setCategory] = useState<string>(t.category);
+  const [priority, setPriority] = useState<string>(t.priority);
+  const [description, setDescription] = useState(t.description ?? "");
+  const [deadline, setDeadline] = useState(t.deadline ?? "");
+  const [estimate, setEstimate] = useState(
+    t.estimate != null ? String(t.estimate) : ""
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  const cls =
+    "w-full rounded-[11px] border-[1.5px] border-[#dde9e5] bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand";
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    startTransition(async () => {
+      const res = await updateTicket(t.id, {
+        title,
+        category,
+        priority,
+        description,
+        deadline,
+        estimate,
+      });
+      if (res.error) setError(res.error);
+      else onSaved();
+    });
+  };
+
+  return (
+    <form
+      onSubmit={submit}
+      className="mb-4 flex flex-col gap-3 rounded-[14px] border-[1.5px] border-[#cbe6e0] bg-[#f9fcfb] p-4"
+    >
+      <div className="text-[13px] font-extrabold text-brand-dark">
+        Редактирование заявки
+      </div>
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Заголовок"
+        className={cls}
+      />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <select value={category} onChange={(e) => setCategory(e.target.value)} className={cls}>
+          {CATEGORIES.map((c) => (
+            <option key={c}>{c}</option>
+          ))}
+        </select>
+        <select value={priority} onChange={(e) => setPriority(e.target.value)} className={cls}>
+          {PRIORITIES.map((p) => (
+            <option key={p}>{p}</option>
+          ))}
+        </select>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="text-[12px] font-semibold text-muted">
+          Дедлайн
+          <input
+            type="date"
+            value={deadline}
+            onChange={(e) => setDeadline(e.target.value)}
+            className={cls}
+          />
+        </label>
+        <label className="text-[12px] font-semibold text-muted">
+          Оценка, часов
+          <input
+            type="number"
+            min="0"
+            value={estimate}
+            onChange={(e) => setEstimate(e.target.value)}
+            className={cls}
+          />
+        </label>
+      </div>
+      <textarea
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        rows={3}
+        placeholder="Описание"
+        className={`${cls} resize-none`}
+      />
+      {error && (
+        <div className="rounded-lg bg-[#fbe3e3] px-3 py-2 text-sm font-semibold text-[#d64545]">
+          {error}
+        </div>
+      )}
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-[10px] border-[1.5px] border-[#dde9e5] bg-white px-4 py-2 text-[13px] font-bold"
+        >
+          Отмена
+        </button>
+        <button
+          type="submit"
+          disabled={pending}
+          className="rounded-[10px] bg-brand px-5 py-2 text-[13px] font-bold text-white disabled:opacity-60"
+        >
+          {pending ? "Сохраняем…" : "Сохранить"}
+        </button>
+      </div>
+    </form>
+  );
+}
 
 function badge([c, b]: [string, string]): CSSProperties {
   return {
@@ -84,6 +211,11 @@ function TicketCard({
 }) {
   const [pending, startTransition] = useTransition();
   const [comment, setComment] = useState("");
+  const [editing, setEditing] = useState(false);
+  const router = useRouter();
+
+  // Админ правит всегда, клиент — пока заявку не взяли в работу
+  const canEdit = isAdmin || t.status === "Новая";
 
   const prioStyle =
     PRIORITY_COLORS[t.priority] ?? (["#4a5f57", "#e7eeeb"] as [string, string]);
@@ -155,23 +287,37 @@ function TicketCard({
             </div>
           )}
 
-          {attachments.length > 0 && (
-            <div className="mb-4 flex flex-wrap gap-2">
-              {attachments.map((a) => {
-                const chip = (
-                  <span className="flex items-center gap-1.5 rounded-[9px] border border-[#dde9e5] bg-[#f4f9f7] px-3 py-2 text-[13px] font-semibold">
-                    {attachmentIcon(a.type)} {a.name}
-                  </span>
-                );
-                return a.url ? (
-                  <a key={a.id} href={a.url} target="_blank" rel="noreferrer">
-                    {chip}
-                  </a>
-                ) : (
-                  <div key={a.id}>{chip}</div>
-                );
-              })}
+          {canEdit && !editing && (
+            <button
+              onClick={() => setEditing(true)}
+              className="mb-4 rounded-[10px] border-[1.5px] border-[#dde9e5] bg-white px-4 py-2 text-[13px] font-bold text-slate transition hover:border-brand hover:text-brand"
+            >
+              ✏️ Изменить заявку
+            </button>
+          )}
+          {!canEdit && !isAdmin && (
+            <div className="mb-4 text-[12px] text-muted">
+              Заявка уже в работе — изменить её нельзя. Уточнения пишите в переписке.
             </div>
+          )}
+
+          <AttachmentChips items={attachments} />
+          {canEdit && (
+            <AddAttachment
+              ticketId={t.id}
+              onDone={() => startTransition(async () => { router.refresh(); })}
+            />
+          )}
+
+          {editing && (
+            <TicketEditForm
+              t={t}
+              onCancel={() => setEditing(false)}
+              onSaved={() => {
+                setEditing(false);
+                router.refresh();
+              }}
+            />
           )}
 
           {/* Панель администратора */}

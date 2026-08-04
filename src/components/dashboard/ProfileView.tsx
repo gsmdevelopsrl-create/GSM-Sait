@@ -2,11 +2,13 @@
 
 import { useState, useTransition } from "react";
 import { updateProfile } from "@/app/dashboard/actions";
+import { MD_PHONE_HINT } from "@/lib/phone";
 
 export function ProfileView({
   name,
   company,
   position,
+  phone,
   email,
   ini,
   isAdmin,
@@ -14,6 +16,7 @@ export function ProfileView({
   name: string;
   company: string;
   position: string;
+  phone: string;
   email: string;
   ini: string;
   isAdmin: boolean;
@@ -21,13 +24,15 @@ export function ProfileView({
   const [fullName, setFullName] = useState(name);
   const [companyName, setCompanyName] = useState(company);
   const [jobTitle, setJobTitle] = useState(position);
+  const [phoneVal, setPhoneVal] = useState(phone);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
 
   const dirty =
     fullName.trim() !== name ||
     companyName.trim() !== company ||
-    jobTitle.trim() !== position;
+    jobTitle.trim() !== position ||
+    phoneVal.trim() !== phone;
 
   const save = (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,6 +42,7 @@ export function ProfileView({
         full_name: fullName,
         company: companyName,
         position: jobTitle,
+        phone: phoneVal,
       });
       if (res.error) setMsg({ ok: false, text: res.error });
       else setMsg({ ok: true, text: "Данные сохранены." });
@@ -85,6 +91,21 @@ export function ProfileView({
           <p className="mt-1.5 text-[11px] text-muted">
             Если укажете новое название — компания будет создана автоматически.
           </p>
+        </div>
+
+        <div>
+          <label className="mb-1.5 block text-[13px] font-bold">
+            Телефон <span className="text-[#d64545]">*</span>
+          </label>
+          <input
+            value={phoneVal}
+            onChange={(e) => setPhoneVal(e.target.value)}
+            type="tel"
+            inputMode="tel"
+            placeholder="+373 69 123 456"
+            className={inputCls}
+          />
+          <p className="mt-1.5 text-[11px] text-muted">{MD_PHONE_HINT}</p>
         </div>
 
         <div>
