@@ -29,6 +29,7 @@ const adminNav: { key: Section; label: string }[] = [
   { key: "tickets", label: "Заявки" },
   { key: "companies", label: "Компании" },
   { key: "analytics", label: "Аналитика" },
+  { key: "profile", label: "Профиль" },
 ];
 
 export function Dashboard({
@@ -138,13 +139,19 @@ export function Dashboard({
             </button>
           )}
           <div className="flex items-center gap-2.5">
-            <div className="hidden text-right leading-tight sm:block">
-              <div className="text-sm font-bold">{me.name}</div>
-              <div className="text-[11px] text-muted">{me.company}</div>
-            </div>
-            <div className="grid h-[38px] w-[38px] place-items-center rounded-full bg-mint text-[13px] font-bold text-brand-dark">
-              {me.ini}
-            </div>
+            <button
+              onClick={() => go("profile")}
+              title="Открыть профиль"
+              className="flex items-center gap-2.5 rounded-full px-1 py-1 transition hover:bg-[#f4f9f7]"
+            >
+              <div className="hidden text-right leading-tight sm:block">
+                <div className="text-sm font-bold">{me.name}</div>
+                <div className="text-[11px] text-muted">{me.company}</div>
+              </div>
+              <div className="grid h-[38px] w-[38px] place-items-center rounded-full bg-mint text-[13px] font-bold text-brand-dark">
+                {me.ini}
+              </div>
+            </button>
             <form action={signOut}>
               <button
                 type="submit"
