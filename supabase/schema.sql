@@ -97,6 +97,14 @@ alter table public.ticket_attachments add column if not exists size_bytes bigint
 -- Распознанный текст с картинки (null = ещё не распознавали, '' = текста нет)
 alter table public.ticket_attachments add column if not exists ocr_text text;
 
+-- Отметка о прочтении переписки: у каждого пользователя своя по каждой заявке
+create table if not exists public.ticket_reads (
+  ticket_id    bigint not null references public.tickets(id) on delete cascade,
+  user_id      uuid   not null references public.profiles(id) on delete cascade,
+  last_read_at timestamptz not null default now(),
+  primary key (ticket_id, user_id)
+);
+
 -- Заявки с лендинга (публичная форма «Оставьте заявку»)
 create table if not exists public.leads (
   id         uuid primary key default gen_random_uuid(),
@@ -308,6 +316,12 @@ create policy ticket_files_delete on storage.objects for delete to authenticated
       )
     )
   );
+
+-- ticket_reads: каждый видит и меняет только свои отметки о прочтении
+alter table public.ticket_reads enable row level security;
+drop policy if exists ticket_reads_own on public.ticket_reads;
+create policy ticket_reads_own on public.ticket_reads for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 -- leads: любой может оставить заявку с лендинга, читает только админ
 drop policy if exists leads_insert on public.leads;

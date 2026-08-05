@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type CSSProperties } from "react";
+import { useEffect, useState, useTransition, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import {
   STATUSES,
@@ -19,10 +19,16 @@ import {
   setEstimate,
   approveTicket,
   rejectTicket,
+  markTicketRead,
 } from "@/app/dashboard/actions";
 import { AttachmentChips, AddAttachment } from "./AttachmentChips";
 import { VoiceInput } from "@/components/VoiceInput";
-import type { Ticket, TicketStatus } from "@/lib/types";
+import {
+  TicketsFilters,
+  EMPTY_FILTERS,
+  type Filters,
+} from "./TicketsFilters";
+import type { Ticket, TicketStatus, TicketReads } from "@/lib/types";
 
 /** Ввод оценки часов админом — отправляет заявку клиенту на утверждение. */
 function EstimateControl({
@@ -321,18 +327,53 @@ function fmtDeadline(d: string | null): string {
   return day && m && y ? `${day}.${m}.${y}` : d;
 }
 
+/** Сколько сообщений не прочитано текущим пользователем */
+function unreadCount(t: Ticket, myId: string, lastRead?: string): number {
+  const comments = t.ticket_comments ?? [];
+  return comments.filter(
+    (c) => c.author_id !== myId && (!lastRead || c.created_at > lastRead)
+  ).length;
+}
+
 export function TicketList({
   tickets,
   isAdmin,
   myId,
+  reads,
   voiceEnabled,
+  expandedId,
+  onExpandedChange,
 }: {
   tickets: Ticket[];
   isAdmin: boolean;
   myId: string;
+  reads?: TicketReads;
   voiceEnabled?: boolean;
+  expandedId: number | null;
+  onExpandedChange: (id: number | null) => void;
 }) {
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+
+  const withMeta = tickets.map((t) => ({
+    t,
+    total: (t.ticket_comments ?? []).length,
+    unread: unreadCount(t, myId, reads?.[t.id]),
+  }));
+
+  const q = filters.query.trim().toLowerCase();
+  const rows = withMeta.filter(({ t, unread }) => {
+    if (filters.status && t.status !== filters.status) return false;
+    if (filters.company && t.company?.name !== filters.company) return false;
+    if (filters.assignee && t.assignee !== filters.assignee) return false;
+    if (filters.onlyUnread && unread === 0) return false;
+    if (q) {
+      const hay = `${t.id} ${t.title} ${t.description ?? ""} ${
+        t.author?.full_name ?? ""
+      }`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
 
   if (!tickets.length) {
     return (
@@ -343,26 +384,66 @@ export function TicketList({
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      {tickets.map((t) => (
-        <TicketCard
-          key={t.id}
-          t={t}
-          isAdmin={isAdmin}
-          myId={myId}
-          voiceEnabled={voiceEnabled}
-          expanded={expandedId === t.id}
-          onToggle={() =>
-            setExpandedId((cur) => (cur === t.id ? null : t.id))
-          }
-        />
-      ))}
-    </div>
+    <>
+      <TicketsFilters
+        tickets={tickets}
+        isAdmin={isAdmin}
+        value={filters}
+        onChange={setFilters}
+        total={tickets.length}
+        shown={rows.length}
+      />
+
+      {rows.length === 0 ? (
+        <div className="rounded-2xl bg-white p-12 text-center text-[#9db3ac]">
+          Под фильтры ничего не подошло
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-2xl border border-line bg-white">
+          <table className="w-full min-w-[760px] border-collapse text-left">
+            <thead>
+              <tr className="border-b border-line text-[12px] font-bold text-muted">
+                <th className="px-3 py-2.5 font-bold">#</th>
+                <th className="px-3 py-2.5 font-bold">Тема</th>
+                {isAdmin && <th className="px-3 py-2.5 font-bold">Компания</th>}
+                <th className="px-3 py-2.5 font-bold">Исполнитель</th>
+                <th className="px-3 py-2.5 text-center font-bold" title="Сообщения">
+                  💬
+                </th>
+                <th className="px-3 py-2.5 font-bold">Приоритет</th>
+                <th className="px-3 py-2.5 font-bold">Статус</th>
+                <th className="px-3 py-2.5 font-bold">Создана</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ t, total, unread }) => (
+                <TicketRow
+                  key={t.id}
+                  t={t}
+                  total={total}
+                  unread={unread}
+                  isAdmin={isAdmin}
+                  myId={myId}
+                  voiceEnabled={voiceEnabled}
+                  expanded={expandedId === t.id}
+                  onToggle={() =>
+                    onExpandedChange(expandedId === t.id ? null : t.id)
+                  }
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
   );
 }
 
-function TicketCard({
+/** Строка таблицы + раскрывающаяся карточка заявки под ней. */
+function TicketRow({
   t,
+  total,
+  unread,
   isAdmin,
   myId,
   voiceEnabled,
@@ -370,11 +451,109 @@ function TicketCard({
   onToggle,
 }: {
   t: Ticket;
+  total: number;
+  unread: number;
   isAdmin: boolean;
   myId: string;
   voiceEnabled?: boolean;
   expanded: boolean;
   onToggle: () => void;
+}) {
+  const src = sourceBadge(t.source);
+  const colSpan = isAdmin ? 8 : 7;
+  const router = useRouter();
+
+  // Открыли заявку — переписка считается прочитанной
+  useEffect(() => {
+    if (!expanded || unread === 0) return;
+    void markTicketRead(t.id).then(() => router.refresh());
+  }, [expanded, unread, t.id, router]);
+
+  return (
+    <>
+      <tr
+        onClick={onToggle}
+        className="cursor-pointer border-b border-[#eef5f2] align-middle transition hover:bg-[#f9fcfb]"
+        style={expanded ? { background: "#f4f9f7" } : undefined}
+      >
+        <td className="px-3 py-3 text-[13px] font-bold text-[#9db3ac]">{t.id}</td>
+        <td className="px-3 py-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[14px] font-bold">{t.title}</span>
+            {src && (
+              <span
+                style={{ background: src.bg, color: src.fg }}
+                className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold"
+              >
+                {src.text}
+              </span>
+            )}
+          </div>
+          <div className="mt-0.5 text-[11px] text-muted">
+            {t.author?.full_name ?? "—"}
+            {t.author?.telegram_username ? ` · @${t.author.telegram_username}` : ""}
+          </div>
+        </td>
+        {isAdmin && (
+          <td className="px-3 py-3 text-[13px]">{t.company?.name ?? "—"}</td>
+        )}
+        <td className="px-3 py-3 text-[13px]">{t.assignee}</td>
+        <td className="px-3 py-3 text-center">
+          {total === 0 ? (
+            <span className="text-[13px] text-[#cfdcd7]">—</span>
+          ) : unread > 0 ? (
+            <span
+              title={`${unread} непрочитанных из ${total}`}
+              className="inline-block rounded-full bg-brand px-2 py-0.5 text-[12px] font-bold text-white"
+            >
+              {total} · +{unread}
+            </span>
+          ) : (
+            <span title={`${total} сообщений, все прочитаны`} className="text-[13px] text-muted">
+              {total}
+            </span>
+          )}
+        </td>
+        <td className="px-3 py-3">
+          <span style={badge(PRIORITY_COLORS[t.priority] ?? ["#4a5f57", "#e7eeeb"])}>
+            {t.priority}
+          </span>
+        </td>
+        <td className="px-3 py-3">
+          <span style={badge(STATUS_COLORS[t.status] ?? ["#6f887f", "#e7eeeb"])}>
+            {t.status}
+          </span>
+        </td>
+        <td className="px-3 py-3 text-[13px] text-muted">{fmtDate(t.created_at)}</td>
+      </tr>
+
+      {expanded && (
+        <tr>
+          <td colSpan={colSpan} className="border-b border-line bg-[#fbfdfc] p-0">
+            <TicketDetail
+              t={t}
+              isAdmin={isAdmin}
+              myId={myId}
+              voiceEnabled={voiceEnabled}
+            />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+/** Развёрнутая карточка заявки: детали, вложения, панели и переписка. */
+function TicketDetail({
+  t,
+  isAdmin,
+  myId,
+  voiceEnabled,
+}: {
+  t: Ticket;
+  isAdmin: boolean;
+  myId: string;
+  voiceEnabled?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [comment, setComment] = useState("");
@@ -388,15 +567,6 @@ function TicketCard({
   // Автор решает судьбу оценки
   const needsApproval = !isAdmin && isAuthor && t.status === "На утверждении";
 
-  const prioStyle =
-    PRIORITY_COLORS[t.priority] ?? (["#4a5f57", "#e7eeeb"] as [string, string]);
-  const statusStyle =
-    STATUS_COLORS[t.status] ?? (["#6f887f", "#e7eeeb"] as [string, string]);
-
-  const authorName = t.author?.full_name ?? "—";
-  const authorNick = t.author?.telegram_username ?? null;
-  const src = sourceBadge(t.source);
-  const companyName = t.company?.name ?? "—";
   const attachments = t.ticket_attachments ?? [];
   const comments = [...(t.ticket_comments ?? [])].sort((a, b) =>
     a.created_at.localeCompare(b.created_at)
@@ -420,42 +590,9 @@ function TicketCard({
   };
 
   return (
-    <div
-      className="overflow-hidden rounded-[18px] bg-white transition"
-      style={{ border: `1.5px solid ${expanded ? "#0f9d8c" : "#e6efec"}` }}
-    >
-      {/* Заголовок карточки */}
-      <div
-        onClick={onToggle}
-        className="grid cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-3 px-[22px] py-[18px] sm:grid-cols-[56px_1fr_auto_auto] sm:gap-4"
-      >
-        <span className="text-sm font-extrabold text-[#9db3ac]">#{t.id}</span>
-        <div>
-          <div className="text-base font-bold">{t.title}</div>
-          <div className="mt-[3px] flex flex-wrap items-center gap-1.5 text-xs text-muted">
-            <span>
-              {companyName} · {authorName}
-              {authorNick ? ` · @${authorNick}` : ""} · {fmtDate(t.created_at)}
-            </span>
-            {src && (
-              <span
-                style={{ background: src.bg, color: src.fg }}
-                className="rounded-full px-2 py-0.5 text-[11px] font-bold"
-              >
-                {src.text}
-              </span>
-            )}
-          </div>
-        </div>
-        <span style={badge(prioStyle)} className="hidden sm:inline">
-          {t.priority}
-        </span>
-        <span style={badge(statusStyle)}>{t.status}</span>
-      </div>
-
-      {/* Развёрнутая часть */}
-      {expanded && (
-        <div className="animate-expand border-t border-canvas px-[22px] pb-[22px] pt-1">
+    <div className="animate-expand">
+      {
+        <div className="px-[22px] pb-[22px] pt-1">
           <div className="my-[18px] grid grid-cols-2 gap-2.5 md:grid-cols-4">
             {meta.map((m) => (
               <div key={m.k} className="rounded-[10px] bg-[#f4f9f7] p-3">
@@ -649,7 +786,7 @@ function TicketCard({
             </button>
           </form>
         </div>
-      )}
+      }
     </div>
   );
 }

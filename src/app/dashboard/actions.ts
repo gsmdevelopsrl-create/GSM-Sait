@@ -191,6 +191,24 @@ export async function addComment(
   return {};
 }
 
+/** Отметить переписку заявки прочитанной текущим пользователем. */
+export async function markTicketRead(
+  ticketId: number
+): Promise<{ error?: string }> {
+  const me = await getMe();
+  if (!me) return {};
+
+  const supabase = await createClient();
+  await supabase
+    .from("ticket_reads")
+    .upsert(
+      { ticket_id: ticketId, user_id: me.id, last_read_at: new Date().toISOString() },
+      { onConflict: "ticket_id,user_id" }
+    );
+
+  return {};
+}
+
 export async function updateProfile(input: {
   full_name: string;
   company: string;

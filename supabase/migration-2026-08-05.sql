@@ -128,3 +128,22 @@ alter table public.tickets add constraint tickets_status_chk
 -- ── 7. Распознанный текст с картинок (OCR) ─────────────────────────────────
 -- null = ещё не распознавали, '' = текста на картинке нет
 alter table public.ticket_attachments add column if not exists ocr_text text;
+
+-- ── 8. Отметки о прочтении переписки ───────────────────────────────────────
+-- Одна строка на пару «заявка + пользователь»: когда он последний раз открывал
+-- обсуждение. Комментарии новее last_read_at считаются непрочитанными.
+create table if not exists public.ticket_reads (
+  ticket_id    bigint not null references public.tickets(id)  on delete cascade,
+  user_id      uuid   not null references public.profiles(id) on delete cascade,
+  last_read_at timestamptz not null default now(),
+  primary key (ticket_id, user_id)
+);
+
+alter table public.ticket_reads enable row level security;
+
+-- каждый видит и правит только свои отметки
+drop policy if exists ticket_reads_own on public.ticket_reads;
+create policy ticket_reads_own on public.ticket_reads
+  for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());

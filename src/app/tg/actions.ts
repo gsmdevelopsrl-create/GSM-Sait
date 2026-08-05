@@ -30,6 +30,8 @@ export type TgState =
       tickets: Ticket[];
       team: string[];
       voiceEnabled: boolean;
+      /** ticket_id → когда пользователь последний раз открывал переписку */
+      reads: Record<number, string>;
     };
 
 function one<T>(v: T | T[] | null | undefined): T | null {
@@ -103,7 +105,7 @@ async function loadTickets(
        companies(name),
        author:profiles!tickets_author_id_fkey(full_name, telegram_username),
        ticket_attachments(id, ticket_id, type, name, url, storage_path, size_bytes, ocr_text),
-       ticket_comments(id, ticket_id, author_name, is_client, body, created_at)`
+       ticket_comments(id, ticket_id, author_id, author_name, is_client, body, created_at)`
     )
     .order("created_at", { ascending: false });
 
@@ -169,13 +171,41 @@ export async function tgLoad(initData: string): Promise<TgState> {
     ];
   }
 
+  const { data: readsRaw } = await r.admin
+    .from("ticket_reads")
+    .select("ticket_id, last_read_at")
+    .eq("user_id", r.profile.id);
+  const reads = Object.fromEntries(
+    (readsRaw ?? []).map((x) => [x.ticket_id as number, x.last_read_at as string])
+  );
+
   return {
     status: "ready",
     profile: r.profile,
     tickets,
     team,
     voiceEnabled: isTranscribeEnabled(),
+    reads,
   };
+}
+
+/** Отметить переписку прочитанной (вызывается при открытии заявки). */
+export async function tgMarkRead(
+  initData: string,
+  ticketId: number
+): Promise<{ error?: string }> {
+  const r = await resolve(initData);
+  if (!r.ok || !r.profile) return {};
+
+  await r.admin.from("ticket_reads").upsert(
+    {
+      ticket_id: ticketId,
+      user_id: r.profile.id,
+      last_read_at: new Date().toISOString(),
+    },
+    { onConflict: "ticket_id,user_id" }
+  );
+  return {};
 }
 
 /** Привязка Telegram к существующему аккаунту клиента (один раз). */

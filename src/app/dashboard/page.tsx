@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Dashboard } from "@/components/dashboard/Dashboard";
 import { initials } from "@/lib/constants";
 import { isTranscribeEnabled } from "@/lib/openai/transcribe";
-import type { Ticket } from "@/lib/types";
+import type { Ticket, TicketReads } from "@/lib/types";
 
 function one<T>(v: T | T[] | null): T | null {
   return Array.isArray(v) ? (v[0] ?? null) : v;
@@ -44,7 +44,7 @@ export default async function DashboardPage() {
        companies(name),
        author:profiles!tickets_author_id_fkey(full_name, telegram_username),
        ticket_attachments(id, ticket_id, type, name, url, storage_path, size_bytes, ocr_text),
-       ticket_comments(id, ticket_id, author_name, is_client, body, created_at)`
+       ticket_comments(id, ticket_id, author_id, author_name, is_client, body, created_at)`
     )
     .order("created_at", { ascending: false });
 
@@ -65,6 +65,15 @@ export default async function DashboardPage() {
     .select("id, name")
     .order("name");
   const companies = (companiesRaw ?? []) as { id: string; name: string }[];
+
+  // Отметки о прочтении переписки — только свои (RLS)
+  const { data: readsRaw } = await supabase
+    .from("ticket_reads")
+    .select("ticket_id, last_read_at")
+    .eq("user_id", user.id);
+  const reads: TicketReads = Object.fromEntries(
+    (readsRaw ?? []).map((r) => [r.ticket_id as number, r.last_read_at as string])
+  );
 
   // Сотрудники (профили): админ видит все, клиент — только себя (RLS).
   const { data: membersRaw } = await supabase
@@ -96,6 +105,7 @@ export default async function DashboardPage() {
       tickets={tickets}
       companies={companies}
       members={members}
+      reads={reads}
       voiceEnabled={isTranscribeEnabled()}
     />
   );

@@ -9,7 +9,7 @@ import { CompaniesView } from "./CompaniesView";
 import { AnalyticsView } from "./AnalyticsView";
 import { ProfileView } from "./ProfileView";
 import { signOut } from "@/app/login/actions";
-import type { Ticket, Role, TicketStatus } from "@/lib/types";
+import type { Ticket, Role, TicketStatus, TicketReads } from "@/lib/types";
 
 type Me = {
   id: string;
@@ -52,6 +52,7 @@ export function Dashboard({
   tickets,
   companies,
   members,
+  reads,
   voiceEnabled,
 }: {
   role: Role;
@@ -59,20 +60,25 @@ export function Dashboard({
   tickets: Ticket[];
   companies: Company[];
   members: Member[];
+  reads?: TicketReads;
   voiceEnabled: boolean;
 }) {
   const isAdmin = role === "admin";
   const [showNew, setShowNew] = useState(false);
   const [section, setSection] = useState<Section>("tickets");
   const [companyFilter, setCompanyFilter] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const nav = isAdmin ? adminNav : clientNav;
 
   const openCompany = (name: string) => {
     setCompanyFilter(name);
     setSection("tickets");
+    setExpandedId(null);
   };
+  // Клик по пункту меню всегда возвращает к чистому списку
   const go = (s: Section) => {
     setCompanyFilter(null);
+    setExpandedId(null);
     setSection(s);
   };
 
@@ -249,7 +255,10 @@ export function Dashboard({
               tickets={displayed}
               isAdmin={isAdmin}
               myId={me.id}
+              reads={reads}
               voiceEnabled={voiceEnabled}
+              expandedId={expandedId}
+              onExpandedChange={setExpandedId}
             />
           </>
         )}

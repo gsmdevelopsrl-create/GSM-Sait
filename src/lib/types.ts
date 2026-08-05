@@ -46,11 +46,15 @@ export interface Attachment {
 export interface Comment {
   id: string;
   ticket_id: number;
+  author_id?: string | null;
   author_name: string;
   is_client: boolean;
   body: string;
   created_at: string;
 }
+
+/** Когда текущий пользователь последний раз открывал переписку заявки */
+export type TicketReads = Record<number, string>;
 
 export interface Ticket {
   id: number;

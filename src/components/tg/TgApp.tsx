@@ -37,6 +37,7 @@ import {
   tgApproveTicket,
   tgRejectTicket,
   tgOcrAttachment,
+  tgMarkRead,
   type TgState,
   type TgProfile,
 } from "@/app/tg/actions";
@@ -207,7 +208,7 @@ export function TgApp() {
     );
   }
 
-  const { profile, tickets, team, voiceEnabled } = state;
+  const { profile, tickets, team, voiceEnabled, reads } = state;
   const openTicket = tickets.find((t) => t.id === openId) ?? null;
   const isAdmin = profile.role === "admin";
 
@@ -296,9 +297,12 @@ export function TgApp() {
         <TicketList
           tickets={tickets}
           isAdmin={isAdmin}
+          myId={profile.id}
+          reads={reads}
           onOpen={(id) => {
             setOpenId(id);
             setScreen("detail");
+            void tgMarkRead(initData!, id);
           }}
         />
       )}
@@ -517,10 +521,14 @@ function LinkForm({
 function TicketList({
   tickets,
   isAdmin,
+  myId,
+  reads,
   onOpen,
 }: {
   tickets: Ticket[];
   isAdmin: boolean;
+  myId: string;
+  reads: Record<number, string>;
   onOpen: (id: number) => void;
 }) {
   if (!tickets.length) {
@@ -553,6 +561,22 @@ function TicketList({
             {(t.ticket_attachments?.length ?? 0) > 0 && (
               <span>📎 {t.ticket_attachments!.length}</span>
             )}
+            {(() => {
+              const all = t.ticket_comments ?? [];
+              const lastRead = reads[t.id];
+              const unread = all.filter(
+                (c) =>
+                  c.author_id !== myId && (!lastRead || c.created_at > lastRead)
+              ).length;
+              if (!all.length) return null;
+              return unread > 0 ? (
+                <span className="rounded-full bg-brand px-2 py-0.5 text-[11px] font-bold text-white">
+                  💬 {all.length} · +{unread}
+                </span>
+              ) : (
+                <span>💬 {all.length}</span>
+              );
+            })()}
           </div>
         </button>
       ))}
