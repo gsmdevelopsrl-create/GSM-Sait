@@ -7,6 +7,7 @@ import { notify } from "@/lib/notify";
 import { normalizeMdPhone, MD_PHONE_HINT } from "@/lib/phone";
 import { BUCKET, buildStoragePath } from "@/lib/attachments";
 import { isTranscribeEnabled } from "@/lib/openai/transcribe";
+import { extractTextFromImage } from "@/lib/openai/vision";
 import type { Ticket, TicketStatus, AttachmentType } from "@/lib/types";
 
 export type TgProfile = {
@@ -101,7 +102,7 @@ async function loadTickets(
       `id, title, category, priority, status, description, deadline, estimate, rejection_reason, assignee, source, created_at, company_id, author_id,
        companies(name),
        author:profiles!tickets_author_id_fkey(full_name, telegram_username),
-       ticket_attachments(id, ticket_id, type, name, url, storage_path, size_bytes),
+       ticket_attachments(id, ticket_id, type, name, url, storage_path, size_bytes, ocr_text),
        ticket_comments(id, ticket_id, author_name, is_client, body, created_at)`
     )
     .order("created_at", { ascending: false });
@@ -580,6 +581,42 @@ export async function tgRegisterAttachment(
 
   if (error) return { error: "Не удалось прикрепить файл." };
   return {};
+}
+
+/** Распознать текст на картинке — только администратор. */
+export async function tgOcrAttachment(
+  initData: string,
+  attachmentId: string
+): Promise<{ text?: string; error?: string }> {
+  const r = await resolve(initData);
+  if (!r.ok) return { error: r.error };
+  if (r.profile?.role !== "admin") return { error: "Нет прав." };
+
+  const { data: a } = await r.admin
+    .from("ticket_attachments")
+    .select("id, type, storage_path, ocr_text")
+    .eq("id", attachmentId)
+    .maybeSingle();
+
+  if (!a) return { error: "Вложение не найдено." };
+  if (a.ocr_text !== null && a.ocr_text !== undefined) return { text: a.ocr_text };
+  if (a.type !== "image" || !a.storage_path)
+    return { error: "Распознавание работает только для картинок." };
+
+  const { data: signed, error: urlErr } = await r.admin.storage
+    .from(BUCKET)
+    .createSignedUrl(a.storage_path, 600);
+  if (urlErr || !signed) return { error: "Файл недоступен." };
+
+  const res = await extractTextFromImage(signed.signedUrl);
+  if (res.error) return { error: res.error };
+
+  await r.admin
+    .from("ticket_attachments")
+    .update({ ocr_text: res.text ?? "" })
+    .eq("id", attachmentId);
+
+  return { text: res.text ?? "" };
 }
 
 /** Удаление вложения: админ — всегда, клиент — пока заявка «Новая». */

@@ -37,6 +37,8 @@ export interface Attachment {
   url: string | null;
   storage_path?: string | null;
   size_bytes?: number | null;
+  /** Распознанный текст: null — ещё не распознавали, '' — текста нет */
+  ocr_text?: string | null;
   /** Временная ссылка для скачивания, генерируется на сервере */
   signedUrl?: string | null;
 }

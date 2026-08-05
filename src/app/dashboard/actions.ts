@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { notify } from "@/lib/notify";
 import { normalizeMdPhone, MD_PHONE_HINT } from "@/lib/phone";
 import { BUCKET } from "@/lib/attachments";
+import { extractTextFromImage } from "@/lib/openai/vision";
 import type { AttachmentType, TicketStatus } from "@/lib/types";
 
 
@@ -483,6 +484,46 @@ export async function deleteAttachment(
   if (error) return { error: "Не удалось удалить вложение." };
   revalidatePath("/dashboard");
   return {};
+}
+
+/**
+ * Распознать текст на картинке — доступно только администратору.
+ * Результат сохраняется, повторно модель не вызывается.
+ */
+export async function ocrAttachment(
+  attachmentId: string
+): Promise<{ text?: string; error?: string }> {
+  const me = await getMe();
+  if (!me || me.role !== "admin") return { error: "Нет прав." };
+
+  const supabase = await createClient();
+  const { data: a } = await supabase
+    .from("ticket_attachments")
+    .select("id, type, storage_path, ocr_text")
+    .eq("id", attachmentId)
+    .maybeSingle();
+
+  if (!a) return { error: "Вложение не найдено." };
+  if (a.ocr_text !== null && a.ocr_text !== undefined)
+    return { text: a.ocr_text }; // уже распознавали
+  if (a.type !== "image" || !a.storage_path)
+    return { error: "Распознавание работает только для картинок." };
+
+  const { data: signed, error: urlErr } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrl(a.storage_path, 600);
+  if (urlErr || !signed) return { error: "Файл недоступен." };
+
+  const res = await extractTextFromImage(signed.signedUrl);
+  if (res.error) return { error: res.error };
+
+  await supabase
+    .from("ticket_attachments")
+    .update({ ocr_text: res.text ?? "" })
+    .eq("id", attachmentId);
+
+  revalidatePath("/dashboard");
+  return { text: res.text ?? "" };
 }
 
 /** Временная ссылка на скачивание вложения (действует 1 час). */

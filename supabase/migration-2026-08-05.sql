@@ -124,3 +124,7 @@ alter table public.tickets drop constraint if exists tickets_status_chk;
 alter table public.tickets add constraint tickets_status_chk
   check (status in ('Новая','На утверждении','Утверждена','Отклонена',
                     'В работе','На проверке','Выполнена'));
+
+-- ── 7. Распознанный текст с картинок (OCR) ─────────────────────────────────
+-- null = ещё не распознавали, '' = текста на картинке нет
+alter table public.ticket_attachments add column if not exists ocr_text text;

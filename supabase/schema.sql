@@ -94,6 +94,8 @@ create table if not exists public.ticket_attachments (
 create index if not exists attachments_ticket_idx on public.ticket_attachments(ticket_id);
 alter table public.ticket_attachments add column if not exists storage_path text;
 alter table public.ticket_attachments add column if not exists size_bytes bigint;
+-- Распознанный текст с картинки (null = ещё не распознавали, '' = текста нет)
+alter table public.ticket_attachments add column if not exists ocr_text text;
 
 -- Заявки с лендинга (публичная форма «Оставьте заявку»)
 create table if not exists public.leads (

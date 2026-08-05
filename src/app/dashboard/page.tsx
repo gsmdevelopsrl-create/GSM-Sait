@@ -43,7 +43,7 @@ export default async function DashboardPage() {
       `id, title, category, priority, status, description, deadline, estimate, rejection_reason, assignee, source, created_at, company_id, author_id,
        companies(name),
        author:profiles!tickets_author_id_fkey(full_name, telegram_username),
-       ticket_attachments(id, ticket_id, type, name, url, storage_path, size_bytes),
+       ticket_attachments(id, ticket_id, type, name, url, storage_path, size_bytes, ocr_text),
        ticket_comments(id, ticket_id, author_name, is_client, body, created_at)`
     )
     .order("created_at", { ascending: false });

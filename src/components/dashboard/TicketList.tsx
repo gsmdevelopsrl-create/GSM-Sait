@@ -513,6 +513,7 @@ function TicketCard({
           <AttachmentChips
             items={attachments}
             canDelete={canDeleteFiles}
+            isAdmin={isAdmin}
             onDeleted={() => router.refresh()}
           />
           {canEdit && (

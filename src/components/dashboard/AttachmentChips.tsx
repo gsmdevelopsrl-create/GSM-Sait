@@ -16,6 +16,7 @@ import {
   getAttachmentUrl,
   registerAttachment,
   deleteAttachment,
+  ocrAttachment,
 } from "@/app/dashboard/actions";
 import type { Attachment } from "@/lib/types";
 
@@ -25,21 +26,94 @@ const chipCls =
 export function AttachmentChips({
   items,
   canDelete,
+  isAdmin,
   onDeleted,
 }: {
   items: Attachment[];
   canDelete?: boolean;
+  isAdmin?: boolean;
   onDeleted?: () => void;
 }) {
   if (!items.length) return null;
   return (
-    <div className="mb-4 flex flex-wrap gap-2">
-      {items.map((a) => (
-        <div key={a.id} className="flex items-stretch">
-          <Chip a={a} />
-          {canDelete && <DeleteButton a={a} onDeleted={onDeleted} />}
-        </div>
-      ))}
+    <div className="mb-4 flex flex-col gap-2">
+      <div className="flex flex-wrap gap-2">
+        {items.map((a) => (
+          <div key={a.id} className="flex items-stretch">
+            <Chip a={a} />
+            {canDelete && <DeleteButton a={a} onDeleted={onDeleted} />}
+          </div>
+        ))}
+      </div>
+      {isAdmin &&
+        items
+          .filter((a) => a.type === "image" && a.storage_path)
+          .map((a) => <OcrBlock key={a.id} a={a} />)}
+    </div>
+  );
+}
+
+/** Распознавание текста с картинки — доступно администратору. */
+function OcrBlock({ a }: { a: Attachment }) {
+  const [text, setText] = useState<string | null | undefined>(a.ocr_text);
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  // Ещё не распознавали — показываем кнопку
+  if (text === null || text === undefined) {
+    return (
+      <div>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => {
+            setError(null);
+            startTransition(async () => {
+              const res = await ocrAttachment(a.id);
+              if (res.error) setError(res.error);
+              else {
+                setText(res.text ?? "");
+                setOpen(true);
+              }
+            });
+          }}
+          className="rounded-[10px] border-[1.5px] border-dashed border-[#b7d5cd] bg-[#f4f9f7] px-3 py-2 text-[12px] font-semibold text-brand-dark disabled:opacity-60"
+        >
+          {pending ? "Распознаём…" : `📄 Распознать текст · ${a.name}`}
+        </button>
+        {error && (
+          <div className="mt-1 text-[12px] font-semibold text-[#d64545]">
+            {error}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (!text) {
+    return (
+      <div className="text-[12px] text-[#9db3ac]">
+        📄 {a.name}: читаемого текста не найдено
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-[10px] border border-line bg-[#f9fcfb] p-3">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 text-left text-[12px] font-bold text-brand-dark"
+      >
+        <span>📄 Текст с картинки · {a.name}</span>
+        <span className="text-muted">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-sans text-[13px] leading-[1.5] text-[#2b3d37]">
+          {text}
+        </pre>
+      )}
     </div>
   );
 }

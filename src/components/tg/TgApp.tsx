@@ -36,10 +36,16 @@ import {
   tgSetEstimate,
   tgApproveTicket,
   tgRejectTicket,
+  tgOcrAttachment,
   type TgState,
   type TgProfile,
 } from "@/app/tg/actions";
-import type { Ticket, TicketStatus, TicketPriority } from "@/lib/types";
+import type {
+  Ticket,
+  TicketStatus,
+  TicketPriority,
+  Attachment,
+} from "@/lib/types";
 
 type TelegramWebApp = {
   initData: string;
@@ -705,6 +711,13 @@ function TicketDetail({
           </div>
         )}
 
+        {isAdmin &&
+          attachments
+            .filter((a) => a.type === "image" && a.storage_path)
+            .map((a) => (
+              <TgOcrBlock key={a.id} initData={initData} attachment={a} />
+            ))}
+
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -882,6 +895,76 @@ function TicketDetail({
           </button>
         </form>
       </div>
+    </div>
+  );
+}
+
+/** Распознавание текста с картинки в Mini App — только у админа. */
+function TgOcrBlock({
+  initData,
+  attachment,
+}: {
+  initData: string;
+  attachment: Attachment;
+}) {
+  const [text, setText] = useState<string | null | undefined>(attachment.ocr_text);
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  if (text === null || text === undefined) {
+    return (
+      <div className="mb-3">
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => {
+            setError(null);
+            startTransition(async () => {
+              const res = await tgOcrAttachment(initData, attachment.id);
+              if (res.error) setError(res.error);
+              else {
+                setText(res.text ?? "");
+                setOpen(true);
+              }
+            });
+          }}
+          className="w-full rounded-[10px] border-[1.5px] border-dashed border-[#b7d5cd] bg-[#f4f9f7] px-3 py-2 text-[12px] font-semibold text-brand-dark disabled:opacity-60"
+        >
+          {pending ? "Распознаём…" : `📄 Распознать текст · ${attachment.name}`}
+        </button>
+        {error && (
+          <div className="mt-1 text-[12px] font-semibold text-[#d64545]">
+            {error}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (!text) {
+    return (
+      <div className="mb-3 text-[12px] text-[#9db3ac]">
+        📄 {attachment.name}: читаемого текста не найдено
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-3 rounded-[10px] border border-line bg-[#f9fcfb] p-3">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 text-left text-[12px] font-bold text-brand-dark"
+      >
+        <span className="truncate">📄 Текст с картинки</span>
+        <span className="text-muted">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-sans text-[13px] leading-snug text-[#2b3d37]">
+          {text}
+        </pre>
+      )}
     </div>
   );
 }
