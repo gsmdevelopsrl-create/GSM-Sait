@@ -89,12 +89,20 @@ create policy ticket_files_insert on storage.objects for insert to authenticated
     and public.can_access_ticket(((storage.foldername(name))[1])::bigint)
   );
 
--- Удаление вложений (права проверяются в коде: админ всегда, клиент — пока «Новая»)
+-- Удаление файла: админ — всегда, клиент — только пока заявка «Новая»
 drop policy if exists ticket_files_delete on storage.objects;
 create policy ticket_files_delete on storage.objects for delete to authenticated
   using (
     bucket_id = 'ticket-files'
-    and public.can_access_ticket(((storage.foldername(name))[1])::bigint)
+    and (
+      public.is_admin()
+      or exists (
+        select 1 from public.tickets t
+        where t.id = ((storage.foldername(name))[1])::bigint
+          and t.company_id = public.current_company()
+          and t.status = 'Новая'
+      )
+    )
   );
 
 -- ── 5. Ник Telegram и источник заявки ───────────────────────────────────────
