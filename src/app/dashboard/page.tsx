@@ -83,6 +83,7 @@ export default async function DashboardPage() {
     <Dashboard
       role={role}
       me={{
+        id: user.id,
         name: fullName,
         company: role === "admin" ? "GSM Developer SRL" : companyName,
         realCompany: companyName === "—" ? "" : companyName,

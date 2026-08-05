@@ -168,9 +168,11 @@ function fmtDeadline(d: string | null): string {
 export function TicketList({
   tickets,
   isAdmin,
+  myId,
 }: {
   tickets: Ticket[];
   isAdmin: boolean;
+  myId: string;
 }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
@@ -189,6 +191,7 @@ export function TicketList({
           key={t.id}
           t={t}
           isAdmin={isAdmin}
+          myId={myId}
           expanded={expandedId === t.id}
           onToggle={() =>
             setExpandedId((cur) => (cur === t.id ? null : t.id))
@@ -202,11 +205,13 @@ export function TicketList({
 function TicketCard({
   t,
   isAdmin,
+  myId,
   expanded,
   onToggle,
 }: {
   t: Ticket;
   isAdmin: boolean;
+  myId: string;
   expanded: boolean;
   onToggle: () => void;
 }) {
@@ -217,6 +222,8 @@ function TicketCard({
 
   // Админ правит всегда, клиент — пока заявку не взяли в работу
   const canEdit = isAdmin || t.status === "Новая";
+  // Удалять вложения клиент может только в своих заявках
+  const canDeleteFiles = isAdmin || (t.status === "Новая" && t.author_id === myId);
 
   const prioStyle =
     PRIORITY_COLORS[t.priority] ?? (["#4a5f57", "#e7eeeb"] as [string, string]);
@@ -317,7 +324,7 @@ function TicketCard({
 
           <AttachmentChips
             items={attachments}
-            canDelete={canEdit}
+            canDelete={canDeleteFiles}
             onDeleted={() => router.refresh()}
           />
           {canEdit && (

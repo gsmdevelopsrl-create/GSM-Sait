@@ -100,6 +100,7 @@ create policy ticket_files_delete on storage.objects for delete to authenticated
         select 1 from public.tickets t
         where t.id = ((storage.foldername(name))[1])::bigint
           and t.company_id = public.current_company()
+          and t.author_id = auth.uid()
           and t.status = 'Новая'
       )
     )

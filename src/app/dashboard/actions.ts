@@ -309,18 +309,23 @@ export async function deleteAttachment(
 
   const { data: a } = await supabase
     .from("ticket_attachments")
-    .select("id, storage_path, ticket_id, tickets(status, company_id)")
+    .select("id, storage_path, ticket_id, tickets(status, company_id, author_id)")
     .eq("id", attachmentId)
     .maybeSingle();
   if (!a) return { error: "Вложение не найдено." };
 
-  const t = one<{ status: string; company_id: string | null }>(
-    (a as { tickets?: unknown }).tickets as never
-  );
+  const t = one<{
+    status: string;
+    company_id: string | null;
+    author_id: string | null;
+  }>((a as { tickets?: unknown }).tickets as never);
 
+  // Клиент удаляет вложения только в своих заявках и только пока они «Новые»
   if (me.role !== "admin") {
     if (!t || t.company_id !== me.company_id)
       return { error: "Нет доступа к заявке." };
+    if (t.author_id !== me.id)
+      return { error: "Удалять вложения может только автор заявки." };
     if (t.status !== "Новая")
       return { error: "Заявка уже в работе — вложения изменить нельзя." };
   }

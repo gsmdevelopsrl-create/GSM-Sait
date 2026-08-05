@@ -12,6 +12,7 @@ import { signOut } from "@/app/login/actions";
 import type { Ticket, Role, TicketStatus } from "@/lib/types";
 
 type Me = {
+  id: string;
   name: string;
   company: string;
   realCompany: string;
@@ -242,7 +243,7 @@ export function Dashboard({
                 </div>
               ))}
             </div>
-            <TicketList tickets={displayed} isAdmin={isAdmin} />
+            <TicketList tickets={displayed} isAdmin={isAdmin} myId={me.id} />
           </>
         )}
 

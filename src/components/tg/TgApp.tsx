@@ -523,6 +523,9 @@ function TicketDetail({
 
   const isAdmin = profile.role === "admin";
   const canEdit = isAdmin || ticket.status === "Новая";
+  // Удалять вложения клиент может только в своих заявках
+  const canDeleteFiles =
+    isAdmin || (ticket.status === "Новая" && ticket.author_id === profile.id);
 
   const comments = [...(ticket.ticket_comments ?? [])].sort((a, b) =>
     a.created_at.localeCompare(b.created_at)
@@ -621,7 +624,7 @@ function TicketDetail({
                   ) : (
                     <span className={`${cls} opacity-60`}>{inner}</span>
                   )}
-                  {canEdit && (
+                  {canDeleteFiles && (
                     <button
                       type="button"
                       title="Удалить"
