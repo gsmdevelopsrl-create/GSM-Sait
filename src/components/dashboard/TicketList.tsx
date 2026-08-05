@@ -21,6 +21,7 @@ import {
   rejectTicket,
 } from "@/app/dashboard/actions";
 import { AttachmentChips, AddAttachment } from "./AttachmentChips";
+import { VoiceInput } from "@/components/VoiceInput";
 import type { Ticket, TicketStatus } from "@/lib/types";
 
 /** Ввод оценки часов админом — отправляет заявку клиенту на утверждение. */
@@ -76,10 +77,12 @@ function EstimateControl({
 function ApprovalPanel({
   ticketId,
   hours,
+  voiceEnabled,
   onDone,
 }: {
   ticketId: number;
   hours: number | null;
+  voiceEnabled?: boolean;
   onDone: () => void;
 }) {
   const [rejecting, setRejecting] = useState(false);
@@ -132,6 +135,12 @@ function ApprovalPanel({
             placeholder="Причина отклонения (обязательно) — например: задача уже неактуальна"
             className="w-full resize-none rounded-[11px] border-[1.5px] border-[#dde9e5] bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand"
           />
+          {voiceEnabled && (
+            <VoiceInput
+              label="Продиктовать причину"
+              onText={(text) => setReason((r) => (r ? `${r} ${text}` : text))}
+            />
+          )}
           <div className="flex flex-wrap gap-2">
             <button
               disabled={pending || !reason.trim()}
@@ -316,10 +325,12 @@ export function TicketList({
   tickets,
   isAdmin,
   myId,
+  voiceEnabled,
 }: {
   tickets: Ticket[];
   isAdmin: boolean;
   myId: string;
+  voiceEnabled?: boolean;
 }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
@@ -339,6 +350,7 @@ export function TicketList({
           t={t}
           isAdmin={isAdmin}
           myId={myId}
+          voiceEnabled={voiceEnabled}
           expanded={expandedId === t.id}
           onToggle={() =>
             setExpandedId((cur) => (cur === t.id ? null : t.id))
@@ -353,12 +365,14 @@ function TicketCard({
   t,
   isAdmin,
   myId,
+  voiceEnabled,
   expanded,
   onToggle,
 }: {
   t: Ticket;
   isAdmin: boolean;
   myId: string;
+  voiceEnabled?: boolean;
   expanded: boolean;
   onToggle: () => void;
 }) {
@@ -461,6 +475,7 @@ function TicketCard({
             <ApprovalPanel
               ticketId={t.id}
               hours={t.estimate}
+              voiceEnabled={voiceEnabled}
               onDone={() => router.refresh()}
             />
           )}
@@ -618,6 +633,12 @@ function TicketCard({
               placeholder="Написать комментарий…"
               className="flex-1 rounded-[10px] border-[1.5px] border-[#dde9e5] px-3.5 py-3 text-sm outline-none focus:border-brand"
             />
+            {voiceEnabled && (
+              <VoiceInput
+                compact
+                onText={(text) => setComment((c) => (c ? `${c} ${text}` : text))}
+              />
+            )}
             <button
               type="submit"
               disabled={pending}

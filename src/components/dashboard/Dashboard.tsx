@@ -52,12 +52,14 @@ export function Dashboard({
   tickets,
   companies,
   members,
+  voiceEnabled,
 }: {
   role: Role;
   me: Me;
   tickets: Ticket[];
   companies: Company[];
   members: Member[];
+  voiceEnabled: boolean;
 }) {
   const isAdmin = role === "admin";
   const [showNew, setShowNew] = useState(false);
@@ -243,7 +245,12 @@ export function Dashboard({
                 </div>
               ))}
             </div>
-            <TicketList tickets={displayed} isAdmin={isAdmin} myId={me.id} />
+            <TicketList
+              tickets={displayed}
+              isAdmin={isAdmin}
+              myId={me.id}
+              voiceEnabled={voiceEnabled}
+            />
           </>
         )}
 
@@ -279,7 +286,12 @@ export function Dashboard({
         )}
       </div>
 
-      {showNew && <NewTicketModal onClose={() => setShowNew(false)} />}
+      {showNew && (
+        <NewTicketModal
+          voiceEnabled={voiceEnabled}
+          onClose={() => setShowNew(false)}
+        />
+      )}
     </div>
   );
 }

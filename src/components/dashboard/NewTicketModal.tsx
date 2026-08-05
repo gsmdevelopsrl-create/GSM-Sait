@@ -10,6 +10,7 @@ import {
   attachmentTypeOf,
   buildStoragePath,
 } from "@/lib/attachments";
+import { VoiceInput } from "@/components/VoiceInput";
 import type { AttachmentType } from "@/lib/types";
 
 type Draft = {
@@ -23,8 +24,15 @@ const inputCls =
   "w-full rounded-[11px] border-[1.5px] border-[#dde9e5] px-3.5 py-3 text-sm outline-none focus:border-brand";
 const labelCls = "mb-1.5 block text-[13px] font-bold";
 
-export function NewTicketModal({ onClose }: { onClose: () => void }) {
+export function NewTicketModal({
+  onClose,
+  voiceEnabled,
+}: {
+  onClose: () => void;
+  voiceEnabled?: boolean;
+}) {
   const [draft, setDraft] = useState<Draft[]>([]);
+  const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -161,9 +169,18 @@ export function NewTicketModal({ onClose }: { onClose: () => void }) {
             <textarea
               name="description"
               rows={4}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
               placeholder="Опишите, что нужно доработать"
               className={`${inputCls} resize-none`}
             />
+            {voiceEnabled && (
+              <VoiceInput
+                onText={(text) =>
+                  setDescription((d) => (d ? `${d} ${text}` : text))
+                }
+              />
+            )}
           </div>
 
           <div>

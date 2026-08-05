@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { Logo } from "@/components/Logo";
+import { VoiceInput } from "@/components/VoiceInput";
 import { createClient } from "@/lib/supabase/client";
 import {
   CATEGORIES,
@@ -199,7 +200,7 @@ export function TgApp() {
     );
   }
 
-  const { profile, tickets, team } = state;
+  const { profile, tickets, team, voiceEnabled } = state;
   const openTicket = tickets.find((t) => t.id === openId) ?? null;
   const isAdmin = profile.role === "admin";
 
@@ -255,6 +256,7 @@ export function TgApp() {
       {screen === "new" && (
         <NewTicketForm
           initData={initData!}
+          voiceEnabled={voiceEnabled}
           onDone={async () => {
             setScreen("list");
             if (initData) await reload(initData);
@@ -268,6 +270,7 @@ export function TgApp() {
           ticket={openTicket}
           profile={profile}
           team={team}
+          voiceEnabled={voiceEnabled}
           onChanged={() => initData && reload(initData)}
         />
       )}
@@ -510,12 +513,14 @@ function TicketDetail({
   ticket,
   profile,
   team,
+  voiceEnabled,
   onChanged,
 }: {
   initData: string;
   ticket: Ticket;
   profile: TgProfile;
   team: string[];
+  voiceEnabled: boolean;
   onChanged: () => void;
 }) {
   const [comment, setComment] = useState("");
@@ -564,6 +569,8 @@ function TicketDetail({
         initial={ticket}
         pendingLabel="Сохраняем…"
         submitLabel="Сохранить"
+        voiceEnabled={voiceEnabled}
+        initData={initData}
         onCancel={() => setEditing(false)}
         onSubmit={async (v) => {
           const res = await tgUpdateTicket(initData, ticket.id, v);
@@ -695,6 +702,7 @@ function TicketDetail({
           initData={initData}
           ticketId={ticket.id}
           hours={ticket.estimate}
+          voiceEnabled={voiceEnabled}
           onDone={onChanged}
         />
       )}
@@ -810,6 +818,15 @@ function TicketDetail({
             placeholder="Сообщение…"
             className={inputCls}
           />
+          {voiceEnabled && (
+            <VoiceInput
+              compact
+              initData={initData}
+              onText={(text) =>
+                setComment((c) => (c ? `${c} ${text}` : text))
+              }
+            />
+          )}
           <button
             type="submit"
             disabled={pending}
@@ -879,11 +896,13 @@ function TgApprovalPanel({
   initData,
   ticketId,
   hours,
+  voiceEnabled,
   onDone,
 }: {
   initData: string;
   ticketId: number;
   hours: number | null;
+  voiceEnabled: boolean;
   onDone: () => void;
 }) {
   const [rejecting, setRejecting] = useState(false);
@@ -938,6 +957,13 @@ function TgApprovalPanel({
             placeholder="Причина отклонения (обязательно)"
             className={`${inputCls} resize-none`}
           />
+          {voiceEnabled && (
+            <VoiceInput
+              initData={initData}
+              label="Продиктовать причину"
+              onText={(text) => setReason((r) => (r ? `${r} ${text}` : text))}
+            />
+          )}
           <button
             type="button"
             disabled={pending || !reason.trim()}
@@ -985,6 +1011,8 @@ function TicketForm({
   onSubmit,
   onCancel,
   extra,
+  voiceEnabled,
+  initData,
 }: {
   title: string;
   initial?: Partial<Ticket>;
@@ -993,6 +1021,8 @@ function TicketForm({
   onSubmit: (v: FormValues) => Promise<string | null>;
   onCancel?: () => void;
   extra?: React.ReactNode;
+  voiceEnabled?: boolean;
+  initData?: string;
 }) {
   const [title, setTitle] = useState(initial?.title ?? "");
   const [category, setCategory] = useState<string>(initial?.category ?? "Доработка");
@@ -1076,6 +1106,14 @@ function TicketForm({
           placeholder="Опишите, что нужно сделать"
           className={`${inputCls} resize-none`}
         />
+        {voiceEnabled && initData && (
+          <VoiceInput
+            initData={initData}
+            onText={(text) =>
+              setDescription((d) => (d ? `${d} ${text}` : text))
+            }
+          />
+        )}
       </div>
       {extra}
       {error && (
@@ -1107,9 +1145,11 @@ function TicketForm({
 
 function NewTicketForm({
   initData,
+  voiceEnabled,
   onDone,
 }: {
   initData: string;
+  voiceEnabled: boolean;
   onDone: () => void;
 }) {
   const [files, setFiles] = useState<File[]>([]);
@@ -1120,6 +1160,8 @@ function NewTicketForm({
       title="Новая заявка"
       submitLabel="Создать заявку"
       pendingLabel="Отправляем…"
+      voiceEnabled={voiceEnabled}
+      initData={initData}
       onSubmit={async (v) => {
         const res = await tgCreateTicket(initData, v);
         if (res.error || !res.ticketId) return res.error ?? "Не удалось создать заявку.";

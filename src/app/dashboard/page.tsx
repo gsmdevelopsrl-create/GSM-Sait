@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Dashboard } from "@/components/dashboard/Dashboard";
 import { initials } from "@/lib/constants";
+import { isTranscribeEnabled } from "@/lib/openai/transcribe";
 import type { Ticket } from "@/lib/types";
 
 function one<T>(v: T | T[] | null): T | null {
@@ -95,6 +96,7 @@ export default async function DashboardPage() {
       tickets={tickets}
       companies={companies}
       members={members}
+      voiceEnabled={isTranscribeEnabled()}
     />
   );
 }

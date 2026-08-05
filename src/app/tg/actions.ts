@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { notify } from "@/lib/notify";
 import { normalizeMdPhone, MD_PHONE_HINT } from "@/lib/phone";
 import { BUCKET, buildStoragePath } from "@/lib/attachments";
+import { isTranscribeEnabled } from "@/lib/openai/transcribe";
 import type { Ticket, TicketStatus, AttachmentType } from "@/lib/types";
 
 export type TgProfile = {
@@ -22,7 +23,13 @@ export type TgProfile = {
 export type TgState =
   | { status: "error"; message: string }
   | { status: "not_linked" }
-  | { status: "ready"; profile: TgProfile; tickets: Ticket[]; team: string[] };
+  | {
+      status: "ready";
+      profile: TgProfile;
+      tickets: Ticket[];
+      team: string[];
+      voiceEnabled: boolean;
+    };
 
 function one<T>(v: T | T[] | null | undefined): T | null {
   return Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
@@ -161,7 +168,13 @@ export async function tgLoad(initData: string): Promise<TgState> {
     ];
   }
 
-  return { status: "ready", profile: r.profile, tickets, team };
+  return {
+    status: "ready",
+    profile: r.profile,
+    tickets,
+    team,
+    voiceEnabled: isTranscribeEnabled(),
+  };
 }
 
 /** Привязка Telegram к существующему аккаунту клиента (один раз). */
