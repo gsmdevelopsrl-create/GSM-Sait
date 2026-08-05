@@ -628,6 +628,27 @@ export async function tgDeleteAttachment(
 }
 
 /**
+ * Отвязать Telegram от аккаунта — «выход» внутри Mini App.
+ * Данные заявок не трогаются, снимается только связь telegram_id.
+ * После этого приложение снова попросит email и пароль.
+ */
+export async function tgUnlink(initData: string): Promise<{ error?: string }> {
+  const tgUser = verifyInitData(initData);
+  if (!tgUser) return { error: "Не удалось подтвердить вход через Telegram." };
+
+  const admin = createAdminClient();
+  if (!admin) return { error: "Сервис временно недоступен." };
+
+  const { error } = await admin
+    .from("profiles")
+    .update({ telegram_id: null })
+    .eq("telegram_id", tgUser.id);
+
+  if (error) return { error: "Не удалось выйти из аккаунта." };
+  return {};
+}
+
+/**
  * Сохранение телефона из Mini App.
  * Должность здесь не спрашиваем — её указывают при регистрации на сайте.
  */

@@ -31,6 +31,7 @@ import {
   tgCreateUpload,
   tgRegisterAttachment,
   tgSavePhone,
+  tgUnlink,
   tgDeleteAttachment,
   tgSetEstimate,
   tgApproveTicket,
@@ -233,24 +234,34 @@ export function TgApp() {
             {profile.position ? ` · ${profile.position}` : ""}
           </div>
         </div>
-        {screen === "list" ? (
-          <button
-            onClick={() => setScreen("new")}
-            className="shrink-0 rounded-full bg-brand px-4 py-2 text-[13px] font-bold text-white"
-          >
-            + Заявка
-          </button>
-        ) : (
-          <button
-            onClick={() => {
+        <div className="flex shrink-0 items-center gap-2">
+          {screen === "list" ? (
+            <button
+              onClick={() => setScreen("new")}
+              className="rounded-full bg-brand px-4 py-2 text-[13px] font-bold text-white"
+            >
+              + Заявка
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setScreen("list");
+                setOpenId(null);
+              }}
+              className="rounded-full border-[1.5px] border-[#dde9e5] px-4 py-2 text-[13px] font-bold text-slate"
+            >
+              ← Назад
+            </button>
+          )}
+          <UnlinkButton
+            initData={initData!}
+            onDone={() => {
               setScreen("list");
               setOpenId(null);
+              if (initData) void reload(initData);
             }}
-            className="shrink-0 rounded-full border-[1.5px] border-[#dde9e5] px-4 py-2 text-[13px] font-bold text-slate"
-          >
-            ← Назад
-          </button>
-        )}
+          />
+        </div>
       </div>
 
       {screen === "new" && (
@@ -305,6 +316,41 @@ function Shell({ children }: { children: React.ReactNode }) {
         {children}
       </div>
     </div>
+  );
+}
+
+/** Выход из аккаунта в Mini App — снимает привязку Telegram к профилю. */
+function UnlinkButton({
+  initData,
+  onDone,
+}: {
+  initData: string;
+  onDone: () => void;
+}) {
+  const [pending, startTransition] = useTransition();
+
+  return (
+    <button
+      type="button"
+      title="Выйти из аккаунта"
+      disabled={pending}
+      onClick={() => {
+        if (
+          !confirm(
+            "Выйти из аккаунта? Заявки останутся, при следующем входе нужно будет ввести email и пароль."
+          )
+        )
+          return;
+        startTransition(async () => {
+          const res = await tgUnlink(initData);
+          if (res.error) alert(res.error);
+          else onDone();
+        });
+      }}
+      className="rounded-full border-[1.5px] border-[#dde9e5] px-3 py-2 text-[13px] font-bold text-slate disabled:opacity-50"
+    >
+      {pending ? "…" : "Выйти"}
+    </button>
   );
 }
 
