@@ -36,8 +36,9 @@ export async function signUp(
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   const phoneRaw = String(formData.get("phone") ?? "").trim();
+  const position = String(formData.get("position") ?? "").trim();
 
-  if (!fullName || !companyName || !email || !password || !phoneRaw) {
+  if (!fullName || !companyName || !email || !password || !phoneRaw || !position) {
     return { error: "Заполните все поля." };
   }
   if (password.length < 6) {
@@ -54,7 +55,12 @@ export async function signUp(
     email,
     password,
     options: {
-      data: { full_name: fullName, company_name: companyName, phone },
+      data: {
+        full_name: fullName,
+        company_name: companyName,
+        phone,
+        position,
+      },
       emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/dashboard`,
     },
   });

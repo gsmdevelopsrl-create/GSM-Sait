@@ -28,7 +28,7 @@ import {
   tgSetAssignee,
   tgCreateUpload,
   tgRegisterAttachment,
-  tgSavePhone,
+  tgSaveProfile,
   type TgState,
   type TgProfile,
 } from "@/app/tg/actions";
@@ -162,12 +162,14 @@ export function TgApp() {
   const openTicket = tickets.find((t) => t.id === openId) ?? null;
   const isAdmin = profile.role === "admin";
 
-  // Телефон обязателен — просим заполнить, если его нет
-  if (!profile.phone) {
+  // Телефон и должность обязательны — просим заполнить, если чего-то нет
+  if (!profile.phone || !profile.position) {
     return (
       <Shell>
-        <PhoneForm
+        <ProfileSetupForm
           initData={initData!}
+          phone={profile.phone ?? ""}
+          position={profile.position ?? ""}
           onSaved={() => initData && reload(initData)}
         />
       </Shell>
@@ -264,14 +266,19 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function PhoneForm({
+function ProfileSetupForm({
   initData,
+  phone: phone0,
+  position: position0,
   onSaved,
 }: {
   initData: string;
+  phone: string;
+  position: string;
   onSaved: () => void;
 }) {
-  const [phone, setPhone] = useState("");
+  const [phone, setPhone] = useState(phone0);
+  const [position, setPosition] = useState(position0);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -279,7 +286,7 @@ function PhoneForm({
     e.preventDefault();
     setError(null);
     startTransition(async () => {
-      const res = await tgSavePhone(initData, phone);
+      const res = await tgSaveProfile(initData, phone, position);
       if (res.error) setError(res.error);
       else onSaved();
     });
@@ -287,19 +294,32 @@ function PhoneForm({
 
   return (
     <form onSubmit={submit} className="rounded-2xl border border-line bg-white p-5">
-      <div className="mb-1 text-lg font-extrabold">Укажите телефон</div>
+      <div className="mb-1 text-lg font-extrabold">Немного о вас</div>
       <p className="mb-4 text-sm text-muted">
-        Нужен для связи по заявкам. {MD_PHONE_HINT}
+        Заполняется один раз — нужно для связи по заявкам.
       </p>
       <div className="flex flex-col gap-3">
-        <input
-          type="tel"
-          inputMode="tel"
-          placeholder="+373 69 123 456"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          className={inputCls}
-        />
+        <div>
+          <label className="mb-1.5 block text-[13px] font-bold">Телефон</label>
+          <input
+            type="tel"
+            inputMode="tel"
+            placeholder="+373 69 123 456"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            className={inputCls}
+          />
+          <p className="mt-1 text-[11px] text-muted">{MD_PHONE_HINT}</p>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-[13px] font-bold">Должность</label>
+          <input
+            placeholder="напр. главный бухгалтер"
+            value={position}
+            onChange={(e) => setPosition(e.target.value)}
+            className={inputCls}
+          />
+        </div>
         {error && (
           <div className="rounded-lg bg-[#fbe3e3] px-3 py-2 text-sm font-semibold text-[#d64545]">
             {error}

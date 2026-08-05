@@ -44,6 +44,12 @@ export default function LoginPage() {
               <input name="full_name" placeholder="Ваше имя" required className={inputCls} />
               <input name="company_name" placeholder="Название компании" required className={inputCls} />
               <input
+                name="position"
+                placeholder="Должность (напр. главный бухгалтер)"
+                required
+                className={inputCls}
+              />
+              <input
                 name="phone"
                 type="tel"
                 inputMode="tel"

@@ -413,10 +413,11 @@ export async function tgRegisterAttachment(
   return {};
 }
 
-/** Сохранение телефона из Mini App (если он ещё не указан). */
-export async function tgSavePhone(
+/** Заполнение обязательных данных профиля из Mini App (телефон и должность). */
+export async function tgSaveProfile(
   initData: string,
-  phoneRaw: string
+  phoneRaw: string,
+  positionRaw: string
 ): Promise<{ error?: string }> {
   const r = await resolve(initData);
   if (!r.ok) return { error: r.error };
@@ -425,11 +426,14 @@ export async function tgSavePhone(
   const phone = normalizeMdPhone(phoneRaw);
   if (!phone) return { error: `Неверный номер. ${MD_PHONE_HINT}` };
 
+  const position = positionRaw.trim();
+  if (!position) return { error: "Укажите должность." };
+
   const { error } = await r.admin
     .from("profiles")
-    .update({ phone })
+    .update({ phone, position })
     .eq("id", r.profile.id);
 
-  if (error) return { error: "Не удалось сохранить телефон." };
+  if (error) return { error: "Не удалось сохранить данные." };
   return {};
 }
