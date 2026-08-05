@@ -66,7 +66,7 @@ export function NewTicketModal({ onClose }: { onClose: () => void }) {
         category: String(fd.get("category") ?? "Доработка"),
         priority: String(fd.get("priority") ?? "Средний"),
         deadline: String(fd.get("deadline") ?? ""),
-        estimate: String(fd.get("estimate") ?? ""),
+        estimate: "", // часы ставит администратор при согласовании
         description: String(fd.get("description") ?? ""),
         attachments: draft
           .filter((a) => !a.file)
@@ -147,15 +147,13 @@ export function NewTicketModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-            <div>
-              <label className={labelCls}>Дедлайн</label>
-              <input name="deadline" type="date" className={inputCls} />
-            </div>
-            <div>
-              <label className={labelCls}>Оценка часов (бюджет)</label>
-              <input name="estimate" type="number" min="0" placeholder="напр. 8" className={inputCls} />
-            </div>
+          <div>
+            <label className={labelCls}>Желаемая дата исполнения</label>
+            <input name="deadline" type="date" className={inputCls} />
+            <p className="mt-1.5 text-[11px] text-muted">
+              Оценку работ в часах проставит администратор — после этого заявка
+              придёт вам на утверждение.
+            </p>
           </div>
 
           <div>

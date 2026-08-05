@@ -116,3 +116,11 @@ update public.tickets set source = 'telegram' where id = 1043;
 alter table public.tickets drop constraint if exists tickets_source_chk;
 alter table public.tickets add constraint tickets_source_chk
   check (source in ('site','telegram'));
+
+-- ── 6. Согласование заявок: два новых этапа + отказ с причиной ──────────────
+alter table public.tickets add column if not exists rejection_reason text;
+alter table public.tickets drop constraint if exists tickets_status_check;
+alter table public.tickets drop constraint if exists tickets_status_chk;
+alter table public.tickets add constraint tickets_status_chk
+  check (status in ('Новая','На утверждении','Утверждена','Отклонена',
+                    'В работе','На проверке','Выполнена'));

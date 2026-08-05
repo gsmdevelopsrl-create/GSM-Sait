@@ -1,6 +1,13 @@
 export type Role = "client" | "admin";
 
-export type TicketStatus = "Новая" | "В работе" | "На проверке" | "Выполнена";
+export type TicketStatus =
+  | "Новая"
+  | "На утверждении"
+  | "Утверждена"
+  | "Отклонена"
+  | "В работе"
+  | "На проверке"
+  | "Выполнена";
 export type TicketPriority = "Низкий" | "Средний" | "Высокий" | "Срочно";
 export type TicketCategory =
   | "Внедрение"
@@ -50,8 +57,12 @@ export interface Ticket {
   priority: TicketPriority;
   status: TicketStatus;
   description: string | null;
+  /** Желаемая дата исполнения — указывает клиент */
   deadline: string | null;
+  /** Оценка работ в часах — ставит администратор */
   estimate: number | null;
+  /** Причина отказа клиента при статусе «Отклонена» */
+  rejection_reason: string | null;
   company_id: string | null;
   author_id: string | null;
   assignee: string;

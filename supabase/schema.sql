@@ -41,11 +41,11 @@ create table if not exists public.tickets (
               check (category in ('Внедрение','Доработка','Поддержка','Обучение','Интеграция')),
   priority    text not null default 'Средний'
               check (priority in ('Низкий','Средний','Высокий','Срочно')),
-  status      text not null default 'Новая'
-              check (status in ('Новая','В работе','На проверке','Выполнена')),
+  status      text not null default 'Новая',
   description text,
-  deadline    date,
-  estimate    integer,
+  deadline    date,          -- желаемая дата исполнения (указывает клиент)
+  estimate    integer,       -- оценка работ в часах (ставит администратор)
+  rejection_reason text,     -- причина отказа клиента при статусе «Отклонена»
   company_id  uuid references public.companies(id) on delete set null,
   author_id   uuid references public.profiles(id) on delete set null,
   assignee    text not null default '—',
@@ -62,6 +62,13 @@ update public.tickets set source = 'site' where source is null;
 alter table public.tickets drop constraint if exists tickets_source_chk;
 alter table public.tickets add constraint tickets_source_chk
   check (source in ('site','telegram'));
+
+alter table public.tickets add column if not exists rejection_reason text;
+alter table public.tickets drop constraint if exists tickets_status_check;
+alter table public.tickets drop constraint if exists tickets_status_chk;
+alter table public.tickets add constraint tickets_status_chk
+  check (status in ('Новая','На утверждении','Утверждена','Отклонена',
+                    'В работе','На проверке','Выполнена'));
 
 create table if not exists public.ticket_comments (
   id         uuid primary key default gen_random_uuid(),

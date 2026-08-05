@@ -16,16 +16,161 @@ import {
   changeAssignee,
   addComment,
   updateTicket,
+  setEstimate,
+  approveTicket,
+  rejectTicket,
 } from "@/app/dashboard/actions";
 import { AttachmentChips, AddAttachment } from "./AttachmentChips";
 import type { Ticket, TicketStatus } from "@/lib/types";
 
+/** Ввод оценки часов админом — отправляет заявку клиенту на утверждение. */
+function EstimateControl({
+  ticketId,
+  current,
+  onDone,
+}: {
+  ticketId: number;
+  current: number | null;
+  onDone: () => void;
+}) {
+  const [hours, setHours] = useState(current != null ? String(current) : "");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  const save = () => {
+    setError(null);
+    startTransition(async () => {
+      const res = await setEstimate(ticketId, hours);
+      if (res.error) setError(res.error);
+      else onDone();
+    });
+  };
+
+  return (
+    <>
+      <div className="flex flex-wrap gap-2">
+        <input
+          type="number"
+          min="1"
+          value={hours}
+          onChange={(e) => setHours(e.target.value)}
+          placeholder="напр. 8"
+          className="w-32 rounded-[10px] border-[1.5px] border-[#dde9e5] bg-white px-3 py-2.5 text-sm outline-none focus:border-brand"
+        />
+        <button
+          disabled={pending || !hours.trim()}
+          onClick={save}
+          className="rounded-[10px] bg-brand px-4 py-2.5 text-[13px] font-bold text-white disabled:opacity-50"
+        >
+          {pending ? "Сохраняем…" : "Отправить на утверждение"}
+        </button>
+      </div>
+      {error && (
+        <div className="mt-1.5 text-[12px] font-semibold text-[#d64545]">{error}</div>
+      )}
+    </>
+  );
+}
+
+/** Плашка для автора: согласиться с оценкой или отклонить с причиной. */
+function ApprovalPanel({
+  ticketId,
+  hours,
+  onDone,
+}: {
+  ticketId: number;
+  hours: number | null;
+  onDone: () => void;
+}) {
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  const run = (fn: () => Promise<{ error?: string }>) => {
+    setError(null);
+    startTransition(async () => {
+      const res = await fn();
+      if (res.error) setError(res.error);
+      else onDone();
+    });
+  };
+
+  return (
+    <div className="mb-4 rounded-[14px] border-[1.5px] border-[#e8d2a6] bg-[#fdf8ee] p-4">
+      <div className="mb-1 text-[13px] font-extrabold text-[#c47d17]">
+        Требуется ваше решение
+      </div>
+      <p className="mb-3 text-sm text-[#2b3d37]">
+        Оценка работ: <b>{hours ?? "—"} ч</b>. Подтвердите сроки или отклоните,
+        указав причину.
+      </p>
+
+      {!rejecting ? (
+        <div className="flex flex-wrap gap-2">
+          <button
+            disabled={pending}
+            onClick={() => run(() => approveTicket(ticketId))}
+            className="rounded-[10px] bg-brand px-5 py-2.5 text-[13px] font-bold text-white disabled:opacity-60"
+          >
+            {pending ? "Отправляем…" : "✓ Утвердить"}
+          </button>
+          <button
+            disabled={pending}
+            onClick={() => setRejecting(true)}
+            className="rounded-[10px] border-[1.5px] border-[#dde9e5] bg-white px-5 py-2.5 text-[13px] font-bold text-[#d64545] disabled:opacity-60"
+          >
+            ✕ Отклонить
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            rows={2}
+            placeholder="Причина отклонения (обязательно) — например: задача уже неактуальна"
+            className="w-full resize-none rounded-[11px] border-[1.5px] border-[#dde9e5] bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand"
+          />
+          <div className="flex flex-wrap gap-2">
+            <button
+              disabled={pending || !reason.trim()}
+              onClick={() => run(() => rejectTicket(ticketId, reason))}
+              className="rounded-[10px] bg-[#d64545] px-5 py-2.5 text-[13px] font-bold text-white disabled:opacity-50"
+            >
+              {pending ? "Отправляем…" : "Отклонить заявку"}
+            </button>
+            <button
+              disabled={pending}
+              onClick={() => {
+                setRejecting(false);
+                setReason("");
+              }}
+              className="rounded-[10px] border-[1.5px] border-[#dde9e5] bg-white px-4 py-2.5 text-[13px] font-bold text-slate"
+            >
+              Назад
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="mt-2 rounded-lg bg-[#fbe3e3] px-3 py-2 text-sm font-semibold text-[#d64545]">
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TicketEditForm({
   t,
+  isAdmin,
   onCancel,
   onSaved,
 }: {
   t: Ticket;
+  isAdmin: boolean;
   onCancel: () => void;
   onSaved: () => void;
 }) {
@@ -34,7 +179,7 @@ function TicketEditForm({
   const [priority, setPriority] = useState<string>(t.priority);
   const [description, setDescription] = useState(t.description ?? "");
   const [deadline, setDeadline] = useState(t.deadline ?? "");
-  const [estimate, setEstimate] = useState(
+  const [estimate, setEstimateValue] = useState(
     t.estimate != null ? String(t.estimate) : ""
   );
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +233,7 @@ function TicketEditForm({
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="text-[12px] font-semibold text-muted">
-          Дедлайн
+          Желаемая дата исполнения
           <input
             type="date"
             value={deadline}
@@ -96,16 +241,18 @@ function TicketEditForm({
             className={cls}
           />
         </label>
-        <label className="text-[12px] font-semibold text-muted">
-          Оценка, часов
-          <input
-            type="number"
-            min="0"
-            value={estimate}
-            onChange={(e) => setEstimate(e.target.value)}
-            className={cls}
-          />
-        </label>
+        {isAdmin && (
+          <label className="text-[12px] font-semibold text-muted">
+            Оценка работ, часов
+            <input
+              type="number"
+              min="0"
+              value={estimate}
+              onChange={(e) => setEstimateValue(e.target.value)}
+              className={cls}
+            />
+          </label>
+        )}
       </div>
       <textarea
         value={description}
@@ -220,10 +367,12 @@ function TicketCard({
   const [editing, setEditing] = useState(false);
   const router = useRouter();
 
-  // Админ правит всегда, клиент — пока заявку не взяли в работу
-  const canEdit = isAdmin || t.status === "Новая";
-  // Удалять вложения клиент может только в своих заявках
-  const canDeleteFiles = isAdmin || (t.status === "Новая" && t.author_id === myId);
+  const isAuthor = t.author_id === myId;
+  // Админ правит всегда, клиент — только свою заявку и пока она «Новая»
+  const canEdit = isAdmin || (t.status === "Новая" && isAuthor);
+  const canDeleteFiles = canEdit;
+  // Автор решает судьбу оценки
+  const needsApproval = !isAdmin && isAuthor && t.status === "На утверждении";
 
   const prioStyle =
     PRIORITY_COLORS[t.priority] ?? (["#4a5f57", "#e7eeeb"] as [string, string]);
@@ -241,8 +390,8 @@ function TicketCard({
 
   const meta = [
     { k: "Категория", v: t.category },
-    { k: "Дедлайн", v: fmtDeadline(t.deadline) },
-    { k: "Оценка", v: t.estimate ? `${t.estimate} ч` : "—" },
+    { k: "Желаемая дата", v: fmtDeadline(t.deadline) },
+    { k: "Оценка работ", v: t.estimate ? `${t.estimate} ч` : "—" },
     { k: "Исполнитель", v: t.assignee },
   ];
 
@@ -308,6 +457,30 @@ function TicketCard({
             </div>
           )}
 
+          {needsApproval && (
+            <ApprovalPanel
+              ticketId={t.id}
+              hours={t.estimate}
+              onDone={() => router.refresh()}
+            />
+          )}
+
+          {t.status === "Отклонена" && t.rejection_reason && (
+            <div className="mb-4 rounded-[14px] border-[1.5px] border-[#f3c9c9] bg-[#fdf2f2] p-4">
+              <div className="mb-1 text-[13px] font-extrabold text-[#d64545]">
+                Заявка отклонена клиентом
+              </div>
+              <div className="text-sm leading-[1.5] text-[#2b3d37]">
+                {t.rejection_reason}
+              </div>
+              {isAdmin && (
+                <div className="mt-2 text-[12px] text-muted">
+                  Измените оценку часов ниже — заявка снова уйдёт на утверждение.
+                </div>
+              )}
+            </div>
+          )}
+
           {canEdit && !editing && (
             <button
               onClick={() => setEditing(true)}
@@ -337,6 +510,7 @@ function TicketCard({
           {editing && (
             <TicketEditForm
               t={t}
+              isAdmin={isAdmin}
               onCancel={() => setEditing(false)}
               onSaved={() => {
                 setEditing(false);
@@ -376,7 +550,18 @@ function TicketCard({
                   );
                 })}
               </div>
-              <div className="mb-1.5 text-xs font-bold text-muted">Исполнитель</div>
+              <div className="mb-1.5 text-xs font-bold text-muted">
+                Оценка работ, часов
+              </div>
+              <EstimateControl
+                ticketId={t.id}
+                current={t.estimate}
+                onDone={() => router.refresh()}
+              />
+
+              <div className="mb-1.5 mt-3.5 text-xs font-bold text-muted">
+                Исполнитель
+              </div>
               <select
                 defaultValue={t.assignee}
                 disabled={pending}

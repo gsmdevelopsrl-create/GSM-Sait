@@ -31,6 +31,9 @@ import {
   tgRegisterAttachment,
   tgSavePhone,
   tgDeleteAttachment,
+  tgSetEstimate,
+  tgApproveTicket,
+  tgRejectTicket,
   type TgState,
   type TgProfile,
 } from "@/app/tg/actions";
@@ -522,10 +525,11 @@ function TicketDetail({
   const fileRef = useRef<HTMLInputElement>(null);
 
   const isAdmin = profile.role === "admin";
-  const canEdit = isAdmin || ticket.status === "Новая";
-  // Удалять вложения клиент может только в своих заявках
-  const canDeleteFiles =
-    isAdmin || (ticket.status === "Новая" && ticket.author_id === profile.id);
+  const isAuthor = ticket.author_id === profile.id;
+  // Админ правит всегда, клиент — только свою заявку и пока она «Новая»
+  const canEdit = isAdmin || (ticket.status === "Новая" && isAuthor);
+  const canDeleteFiles = canEdit;
+  const needsApproval = !isAdmin && isAuthor && ticket.status === "На утверждении";
 
   const comments = [...(ticket.ticket_comments ?? [])].sort((a, b) =>
     a.created_at.localeCompare(b.created_at)
@@ -686,12 +690,43 @@ function TicketDetail({
         )}
       </div>
 
+      {needsApproval && (
+        <TgApprovalPanel
+          initData={initData}
+          ticketId={ticket.id}
+          hours={ticket.estimate}
+          onDone={onChanged}
+        />
+      )}
+
+      {ticket.status === "Отклонена" && ticket.rejection_reason && (
+        <div className="rounded-2xl border-[1.5px] border-[#f3c9c9] bg-[#fdf2f2] p-4">
+          <div className="mb-1 text-[13px] font-extrabold text-[#d64545]">
+            Заявка отклонена клиентом
+          </div>
+          <div className="text-sm leading-snug text-[#2b3d37]">
+            {ticket.rejection_reason}
+          </div>
+        </div>
+      )}
+
       {isAdmin && (
         <div className="rounded-2xl border-[1.5px] border-[#cbe6e0] bg-[#f4f9f7] p-4">
           <div className="mb-3 text-[13px] font-extrabold text-brand-dark">
             Панель администратора
           </div>
-          <div className="mb-1.5 text-xs font-bold text-muted">Статус</div>
+
+          <div className="mb-1.5 text-xs font-bold text-muted">
+            Оценка работ, часов
+          </div>
+          <TgEstimateControl
+            initData={initData}
+            ticketId={ticket.id}
+            current={ticket.estimate}
+            onDone={onChanged}
+          />
+
+          <div className="mb-1.5 mt-3.5 text-xs font-bold text-muted">Статус</div>
           <div className="mb-3.5 flex flex-wrap gap-2">
             {STATUSES.map((s) => {
               const active = ticket.status === s;
@@ -788,11 +823,158 @@ function TicketDetail({
   );
 }
 
+/** Админ ставит оценку часов — заявка уходит клиенту на утверждение. */
+function TgEstimateControl({
+  initData,
+  ticketId,
+  current,
+  onDone,
+}: {
+  initData: string;
+  ticketId: number;
+  current: number | null;
+  onDone: () => void;
+}) {
+  const [hours, setHours] = useState(current != null ? String(current) : "");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  return (
+    <>
+      <div className="flex gap-2">
+        <input
+          type="number"
+          min="1"
+          inputMode="numeric"
+          value={hours}
+          onChange={(e) => setHours(e.target.value)}
+          placeholder="напр. 8"
+          className={inputCls}
+        />
+        <button
+          type="button"
+          disabled={pending || !hours.trim()}
+          onClick={() => {
+            setError(null);
+            startTransition(async () => {
+              const res = await tgSetEstimate(initData, ticketId, hours);
+              if (res.error) setError(res.error);
+              else onDone();
+            });
+          }}
+          className="shrink-0 rounded-xl bg-brand px-4 text-[13px] font-bold text-white disabled:opacity-50"
+        >
+          {pending ? "…" : "Отправить"}
+        </button>
+      </div>
+      {error && (
+        <div className="mt-1.5 text-[12px] font-semibold text-[#d64545]">{error}</div>
+      )}
+    </>
+  );
+}
+
+/** Плашка автора: утвердить оценку или отклонить с причиной. */
+function TgApprovalPanel({
+  initData,
+  ticketId,
+  hours,
+  onDone,
+}: {
+  initData: string;
+  ticketId: number;
+  hours: number | null;
+  onDone: () => void;
+}) {
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  const run = (fn: () => Promise<{ error?: string }>) => {
+    setError(null);
+    startTransition(async () => {
+      const res = await fn();
+      if (res.error) setError(res.error);
+      else onDone();
+    });
+  };
+
+  return (
+    <div className="rounded-2xl border-[1.5px] border-[#e8d2a6] bg-[#fdf8ee] p-4">
+      <div className="mb-1 text-[13px] font-extrabold text-[#c47d17]">
+        Требуется ваше решение
+      </div>
+      <p className="mb-3 text-sm text-[#2b3d37]">
+        Оценка работ: <b>{hours ?? "—"} ч</b>. Подтвердите сроки или отклоните,
+        указав причину.
+      </p>
+
+      {!rejecting ? (
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => run(() => tgApproveTicket(initData, ticketId))}
+            className="rounded-xl bg-brand py-3 text-[15px] font-bold text-white disabled:opacity-60"
+          >
+            {pending ? "Отправляем…" : "✓ Утвердить"}
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => setRejecting(true)}
+            className="rounded-xl border-[1.5px] border-[#dde9e5] bg-white py-3 text-[15px] font-bold text-[#d64545] disabled:opacity-60"
+          >
+            ✕ Отклонить
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            rows={3}
+            placeholder="Причина отклонения (обязательно)"
+            className={`${inputCls} resize-none`}
+          />
+          <button
+            type="button"
+            disabled={pending || !reason.trim()}
+            onClick={() => run(() => tgRejectTicket(initData, ticketId, reason))}
+            className="rounded-xl bg-[#d64545] py-3 text-[15px] font-bold text-white disabled:opacity-50"
+          >
+            {pending ? "Отправляем…" : "Отклонить заявку"}
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => {
+              setRejecting(false);
+              setReason("");
+            }}
+            className="rounded-xl border-[1.5px] border-[#dde9e5] bg-white py-2.5 text-[13px] font-bold text-slate"
+          >
+            Назад
+          </button>
+        </div>
+      )}
+
+      {error && (
+        <div className="mt-2 rounded-lg bg-[#fbe3e3] px-3 py-2 text-sm font-semibold text-[#d64545]">
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type FormValues = {
   title: string;
   category: string;
   priority: string;
   description: string;
+  deadline: string;
 };
 
 function TicketForm({
@@ -816,6 +998,7 @@ function TicketForm({
   const [category, setCategory] = useState<string>(initial?.category ?? "Доработка");
   const [priority, setPriority] = useState<string>(initial?.priority ?? "Средний");
   const [description, setDescription] = useState(initial?.description ?? "");
+  const [deadline, setDeadline] = useState(initial?.deadline ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -823,7 +1006,13 @@ function TicketForm({
     e.preventDefault();
     setError(null);
     startTransition(async () => {
-      const err = await onSubmit({ title, category, priority, description });
+      const err = await onSubmit({
+        title,
+        category,
+        priority,
+        description,
+        deadline,
+      });
       if (err) setError(err);
     });
   };
@@ -866,6 +1055,17 @@ function TicketForm({
             <option key={p}>{p}</option>
           ))}
         </select>
+      </div>
+      <div>
+        <label className="mb-1.5 block text-[13px] font-bold">
+          Желаемая дата исполнения
+        </label>
+        <input
+          type="date"
+          value={deadline}
+          onChange={(e) => setDeadline(e.target.value)}
+          className={inputCls}
+        />
       </div>
       <div>
         <label className="mb-1.5 block text-[13px] font-bold">Описание</label>

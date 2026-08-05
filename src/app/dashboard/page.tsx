@@ -39,7 +39,7 @@ export default async function DashboardPage() {
   const { data: raw } = await supabase
     .from("tickets")
     .select(
-      `id, title, category, priority, status, description, deadline, estimate, assignee, source, created_at, company_id, author_id,
+      `id, title, category, priority, status, description, deadline, estimate, rejection_reason, assignee, source, created_at, company_id, author_id,
        companies(name),
        author:profiles!tickets_author_id_fkey(full_name, telegram_username),
        ticket_attachments(id, ticket_id, type, name, url, storage_path, size_bytes),

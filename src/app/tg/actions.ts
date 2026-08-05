@@ -91,7 +91,7 @@ async function loadTickets(
   let q = admin
     .from("tickets")
     .select(
-      `id, title, category, priority, status, description, deadline, estimate, assignee, source, created_at, company_id, author_id,
+      `id, title, category, priority, status, description, deadline, estimate, rejection_reason, assignee, source, created_at, company_id, author_id,
        companies(name),
        author:profiles!tickets_author_id_fkey(full_name, telegram_username),
        ticket_attachments(id, ticket_id, type, name, url, storage_path, size_bytes),
@@ -211,6 +211,7 @@ export async function tgCreateTicket(
     category: string;
     priority: string;
     description: string;
+    deadline?: string;
   }
 ): Promise<{ error?: string; ticketId?: number }> {
   const r = await resolve(initData);
@@ -228,6 +229,7 @@ export async function tgCreateTicket(
       priority: input.priority,
       status: "Новая",
       description: input.description.trim() || null,
+      deadline: input.deadline || null,
       company_id: r.profile.company_id,
       author_id: r.profile.id,
       source: "telegram",
@@ -268,14 +270,17 @@ export async function tgUpdateTicket(
 
   const { data: t } = await r.admin
     .from("tickets")
-    .select("id, status, company_id")
+    .select("id, status, company_id, author_id")
     .eq("id", ticketId)
     .maybeSingle();
   if (!t) return { error: "Заявка не найдена." };
 
+  // Клиент правит только свои заявки и только пока они «Новые»
   if (r.profile.role !== "admin") {
     if (t.company_id !== r.profile.company_id)
       return { error: "Нет доступа к заявке." };
+    if (t.author_id !== r.profile.id)
+      return { error: "Редактировать заявку может только её автор." };
     if (t.status !== "Новая")
       return { error: "Заявку уже взяли в работу — изменить её нельзя." };
   }
@@ -325,6 +330,136 @@ export async function tgSetStatus(
     status,
   });
 
+  return {};
+}
+
+/** Администратор ставит оценку часов → заявка уходит на утверждение. */
+export async function tgSetEstimate(
+  initData: string,
+  ticketId: number,
+  hours: string
+): Promise<{ error?: string }> {
+  const r = await resolve(initData);
+  if (!r.ok) return { error: r.error };
+  if (r.profile?.role !== "admin") return { error: "Нет прав." };
+
+  const n = Number(hours);
+  if (!hours.trim() || !Number.isFinite(n) || n <= 0)
+    return { error: "Укажите оценку в часах числом больше нуля." };
+
+  const { data: t } = await r.admin
+    .from("tickets")
+    .select("id, status, title, companies(name)")
+    .eq("id", ticketId)
+    .maybeSingle();
+  if (!t) return { error: "Заявка не найдена." };
+
+  const toApproval = t.status === "Новая" || t.status === "Отклонена";
+  const { error } = await r.admin
+    .from("tickets")
+    .update({
+      estimate: n,
+      ...(toApproval
+        ? { status: "На утверждении", rejection_reason: null }
+        : {}),
+    })
+    .eq("id", ticketId);
+  if (error) return { error: "Не удалось сохранить оценку." };
+
+  if (toApproval) {
+    const company = one<{ name: string }>(
+      (t as { companies?: unknown }).companies as never
+    );
+    await notify({
+      type: "ticket.status_changed",
+      ticketId,
+      title: t.title ?? "",
+      company: company?.name ?? "—",
+      status: `На утверждении (оценка ${n} ч)`,
+    });
+  }
+  return {};
+}
+
+/** Автор соглашается с оценкой. */
+export async function tgApproveTicket(
+  initData: string,
+  ticketId: number
+): Promise<{ error?: string }> {
+  const r = await resolve(initData);
+  if (!r.ok) return { error: r.error };
+  if (!r.profile) return { error: "Аккаунт не привязан." };
+
+  const { data: t } = await r.admin
+    .from("tickets")
+    .select("id, status, author_id, title, companies(name)")
+    .eq("id", ticketId)
+    .maybeSingle();
+  if (!t) return { error: "Заявка не найдена." };
+  if (t.author_id !== r.profile.id)
+    return { error: "Утвердить заявку может только её автор." };
+  if (t.status !== "На утверждении")
+    return { error: "Заявка не находится на утверждении." };
+
+  const { error } = await r.admin
+    .from("tickets")
+    .update({ status: "Утверждена", rejection_reason: null })
+    .eq("id", ticketId);
+  if (error) return { error: "Не удалось утвердить заявку." };
+
+  const company = one<{ name: string }>(
+    (t as { companies?: unknown }).companies as never
+  );
+  await notify({
+    type: "ticket.status_changed",
+    ticketId,
+    title: t.title ?? "",
+    company: company?.name ?? "—",
+    status: "Утверждена клиентом",
+  });
+  return {};
+}
+
+/** Автор отклоняет оценку — причина обязательна. */
+export async function tgRejectTicket(
+  initData: string,
+  ticketId: number,
+  reason: string
+): Promise<{ error?: string }> {
+  const r = await resolve(initData);
+  if (!r.ok) return { error: r.error };
+  if (!r.profile) return { error: "Аккаунт не привязан." };
+
+  const text = reason.trim();
+  if (!text) return { error: "Укажите причину отклонения." };
+
+  const { data: t } = await r.admin
+    .from("tickets")
+    .select("id, status, author_id, title, companies(name)")
+    .eq("id", ticketId)
+    .maybeSingle();
+  if (!t) return { error: "Заявка не найдена." };
+  if (t.author_id !== r.profile.id)
+    return { error: "Отклонить заявку может только её автор." };
+  if (t.status !== "На утверждении")
+    return { error: "Заявка не находится на утверждении." };
+
+  const { error } = await r.admin
+    .from("tickets")
+    .update({ status: "Отклонена", rejection_reason: text })
+    .eq("id", ticketId);
+  if (error) return { error: "Не удалось отклонить заявку." };
+
+  const company = one<{ name: string }>(
+    (t as { companies?: unknown }).companies as never
+  );
+  await notify({
+    type: "ticket.status_changed",
+    ticketId,
+    title: t.title ?? "",
+    company: company?.name ?? "—",
+    status: `Отклонена клиентом: ${text}`,
+  });
   return {};
 }
 

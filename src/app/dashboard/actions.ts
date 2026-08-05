@@ -7,6 +7,7 @@ import { normalizeMdPhone, MD_PHONE_HINT } from "@/lib/phone";
 import { BUCKET } from "@/lib/attachments";
 import type { AttachmentType, TicketStatus } from "@/lib/types";
 
+
 function one<T>(v: T | T[] | null | undefined): T | null {
   return Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
 }
@@ -238,13 +239,16 @@ export async function updateTicket(
 
   const { data: t } = await supabase
     .from("tickets")
-    .select("id, status, company_id")
+    .select("id, status, company_id, author_id")
     .eq("id", ticketId)
     .maybeSingle();
   if (!t) return { error: "Заявка не найдена." };
 
+  // Клиент правит только свои заявки и только пока они «Новые»
   if (me.role !== "admin") {
     if (t.company_id !== me.company_id) return { error: "Нет доступа к заявке." };
+    if (t.author_id !== me.id)
+      return { error: "Редактировать заявку может только её автор." };
     if (t.status !== "Новая")
       return {
         error: "Заявку уже взяли в работу — изменить её нельзя. Напишите в переписке.",
@@ -264,6 +268,143 @@ export async function updateTicket(
     .eq("id", ticketId);
 
   if (error) return { error: "Не удалось сохранить изменения." };
+  revalidatePath("/dashboard");
+  return {};
+}
+
+/**
+ * Администратор указывает оценку работ в часах.
+ * Заявка сразу уходит клиенту на утверждение (в т.ч. после отказа — с новой оценкой).
+ */
+export async function setEstimate(
+  ticketId: number,
+  hours: string
+): Promise<{ error?: string }> {
+  const me = await getMe();
+  if (!me || me.role !== "admin") return { error: "Нет прав." };
+
+  const n = Number(hours);
+  if (!hours.trim() || !Number.isFinite(n) || n <= 0)
+    return { error: "Укажите оценку в часах числом больше нуля." };
+
+  const supabase = await createClient();
+  const { data: t } = await supabase
+    .from("tickets")
+    .select("id, status, title, companies(name)")
+    .eq("id", ticketId)
+    .maybeSingle();
+  if (!t) return { error: "Заявка не найдена." };
+
+  const toApproval = t.status === "Новая" || t.status === "Отклонена";
+  const { error } = await supabase
+    .from("tickets")
+    .update({
+      estimate: n,
+      ...(toApproval
+        ? { status: "На утверждении" as TicketStatus, rejection_reason: null }
+        : {}),
+    })
+    .eq("id", ticketId);
+
+  if (error) return { error: "Не удалось сохранить оценку." };
+
+  if (toApproval) {
+    const company = one<{ name: string }>(
+      (t as { companies?: unknown }).companies as never
+    );
+    await notify({
+      type: "ticket.status_changed",
+      ticketId,
+      title: t.title ?? "",
+      company: company?.name ?? "—",
+      status: `На утверждении (оценка ${n} ч)`,
+    });
+  }
+
+  revalidatePath("/dashboard");
+  return {};
+}
+
+/** Автор заявки соглашается с оценкой. */
+export async function approveTicket(
+  ticketId: number
+): Promise<{ error?: string }> {
+  const me = await getMe();
+  if (!me) return { error: "Сессия истекла." };
+
+  const supabase = await createClient();
+  const { data: t } = await supabase
+    .from("tickets")
+    .select("id, status, author_id, title, companies(name)")
+    .eq("id", ticketId)
+    .maybeSingle();
+  if (!t) return { error: "Заявка не найдена." };
+  if (t.author_id !== me.id)
+    return { error: "Утвердить заявку может только её автор." };
+  if (t.status !== "На утверждении")
+    return { error: "Заявка не находится на утверждении." };
+
+  const { error } = await supabase
+    .from("tickets")
+    .update({ status: "Утверждена", rejection_reason: null })
+    .eq("id", ticketId);
+  if (error) return { error: "Не удалось утвердить заявку." };
+
+  const company = one<{ name: string }>(
+    (t as { companies?: unknown }).companies as never
+  );
+  await notify({
+    type: "ticket.status_changed",
+    ticketId,
+    title: t.title ?? "",
+    company: company?.name ?? "—",
+    status: "Утверждена клиентом",
+  });
+
+  revalidatePath("/dashboard");
+  return {};
+}
+
+/** Автор заявки отклоняет оценку — причина обязательна. */
+export async function rejectTicket(
+  ticketId: number,
+  reason: string
+): Promise<{ error?: string }> {
+  const me = await getMe();
+  if (!me) return { error: "Сессия истекла." };
+
+  const text = reason.trim();
+  if (!text) return { error: "Укажите причину отклонения." };
+
+  const supabase = await createClient();
+  const { data: t } = await supabase
+    .from("tickets")
+    .select("id, status, author_id, title, companies(name)")
+    .eq("id", ticketId)
+    .maybeSingle();
+  if (!t) return { error: "Заявка не найдена." };
+  if (t.author_id !== me.id)
+    return { error: "Отклонить заявку может только её автор." };
+  if (t.status !== "На утверждении")
+    return { error: "Заявка не находится на утверждении." };
+
+  const { error } = await supabase
+    .from("tickets")
+    .update({ status: "Отклонена", rejection_reason: text })
+    .eq("id", ticketId);
+  if (error) return { error: "Не удалось отклонить заявку." };
+
+  const company = one<{ name: string }>(
+    (t as { companies?: unknown }).companies as never
+  );
+  await notify({
+    type: "ticket.status_changed",
+    ticketId,
+    title: t.title ?? "",
+    company: company?.name ?? "—",
+    status: `Отклонена клиентом: ${text}`,
+  });
+
   revalidatePath("/dashboard");
   return {};
 }
