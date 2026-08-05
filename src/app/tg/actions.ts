@@ -13,6 +13,7 @@ export type TgProfile = {
   full_name: string | null;
   position: string | null;
   phone: string | null;
+  telegram_username: string | null;
   role: "client" | "admin";
   company_id: string | null;
   company_name: string;
@@ -48,17 +49,33 @@ async function resolve(initData: string): Promise<Resolved> {
 
   const { data } = await admin
     .from("profiles")
-    .select("id, full_name, position, phone, role, company_id, companies(name)")
+    .select(
+      "id, full_name, position, phone, telegram_username, role, company_id, companies(name)"
+    )
     .eq("telegram_id", tgUser.id)
     .maybeSingle();
 
   if (!data) return { ok: true, admin, profile: null };
 
+  // Подхватываем из Telegram то, что он отдаёт сам: ник и имя.
+  // Имя пишем только если его ещё нет — введённое пользователем важнее.
+  const tgName = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ");
+  const patch: Record<string, string> = {};
+  if (tgUser.username && tgUser.username !== data.telegram_username) {
+    patch.telegram_username = tgUser.username;
+  }
+  if (!data.full_name && tgName) patch.full_name = tgName;
+
+  if (Object.keys(patch).length) {
+    await admin.from("profiles").update(patch).eq("id", data.id);
+  }
+
   const profile: TgProfile = {
     id: data.id,
-    full_name: data.full_name,
+    full_name: patch.full_name ?? data.full_name,
     position: data.position,
     phone: data.phone,
+    telegram_username: patch.telegram_username ?? data.telegram_username ?? null,
     role: data.role,
     company_id: data.company_id,
     company_name: one<{ name: string }>(data.companies as never)?.name ?? "—",
@@ -74,9 +91,9 @@ async function loadTickets(
   let q = admin
     .from("tickets")
     .select(
-      `id, title, category, priority, status, description, deadline, estimate, assignee, created_at, company_id, author_id,
+      `id, title, category, priority, status, description, deadline, estimate, assignee, source, created_at, company_id, author_id,
        companies(name),
-       author:profiles!tickets_author_id_fkey(full_name),
+       author:profiles!tickets_author_id_fkey(full_name, telegram_username),
        ticket_attachments(id, ticket_id, type, name, url, storage_path, size_bytes),
        ticket_comments(id, ticket_id, author_name, is_client, body, created_at)`
     )
@@ -92,7 +109,10 @@ async function loadTickets(
     (t) => ({
       ...(t as unknown as Ticket),
       company: one<{ name: string }>(t.companies as never),
-      author: one<{ full_name: string | null }>(t.author as never),
+      author: one<{
+        full_name: string | null;
+        telegram_username?: string | null;
+      }>(t.author as never),
     })
   );
 
@@ -210,6 +230,7 @@ export async function tgCreateTicket(
       description: input.description.trim() || null,
       company_id: r.profile.company_id,
       author_id: r.profile.id,
+      source: "telegram",
     })
     .select("id")
     .single();
@@ -413,11 +434,53 @@ export async function tgRegisterAttachment(
   return {};
 }
 
-/** Заполнение обязательных данных профиля из Mini App (телефон и должность). */
-export async function tgSaveProfile(
+/** Удаление вложения: админ — всегда, клиент — пока заявка «Новая». */
+export async function tgDeleteAttachment(
   initData: string,
-  phoneRaw: string,
-  positionRaw: string
+  attachmentId: string
+): Promise<{ error?: string }> {
+  const r = await resolve(initData);
+  if (!r.ok) return { error: r.error };
+  if (!r.profile) return { error: "Аккаунт не привязан." };
+
+  const { data: a } = await r.admin
+    .from("ticket_attachments")
+    .select("id, storage_path, ticket_id, tickets(status, company_id)")
+    .eq("id", attachmentId)
+    .maybeSingle();
+  if (!a) return { error: "Вложение не найдено." };
+
+  const t = one<{ status: string; company_id: string | null }>(
+    (a as { tickets?: unknown }).tickets as never
+  );
+
+  if (r.profile.role !== "admin") {
+    if (!t || t.company_id !== r.profile.company_id)
+      return { error: "Нет доступа к заявке." };
+    if (t.status !== "Новая")
+      return { error: "Заявка уже в работе — вложения изменить нельзя." };
+  }
+
+  if (a.storage_path) {
+    await r.admin.storage.from(BUCKET).remove([a.storage_path]);
+  }
+
+  const { error } = await r.admin
+    .from("ticket_attachments")
+    .delete()
+    .eq("id", attachmentId);
+
+  if (error) return { error: "Не удалось удалить вложение." };
+  return {};
+}
+
+/**
+ * Сохранение телефона из Mini App.
+ * Должность здесь не спрашиваем — её указывают при регистрации на сайте.
+ */
+export async function tgSavePhone(
+  initData: string,
+  phoneRaw: string
 ): Promise<{ error?: string }> {
   const r = await resolve(initData);
   if (!r.ok) return { error: r.error };
@@ -426,14 +489,11 @@ export async function tgSaveProfile(
   const phone = normalizeMdPhone(phoneRaw);
   if (!phone) return { error: `Неверный номер. ${MD_PHONE_HINT}` };
 
-  const position = positionRaw.trim();
-  if (!position) return { error: "Укажите должность." };
-
   const { error } = await r.admin
     .from("profiles")
-    .update({ phone, position })
+    .update({ phone })
     .eq("id", r.profile.id);
 
-  if (error) return { error: "Не удалось сохранить данные." };
+  if (error) return { error: "Не удалось сохранить телефон." };
   return {};
 }

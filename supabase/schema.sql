@@ -23,6 +23,7 @@ create table if not exists public.profiles (
 alter table public.profiles add column if not exists position text;
 -- привязка Telegram-аккаунта (для Mini App)
 alter table public.profiles add column if not exists telegram_id bigint;
+alter table public.profiles add column if not exists telegram_username text;
 create unique index if not exists profiles_telegram_id_key
   on public.profiles(telegram_id) where telegram_id is not null;
 
@@ -48,11 +49,19 @@ create table if not exists public.tickets (
   company_id  uuid references public.companies(id) on delete set null,
   author_id   uuid references public.profiles(id) on delete set null,
   assignee    text not null default '—',
+  source      text default 'site',   -- откуда пришла заявка: site | telegram
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
 create index if not exists tickets_company_idx on public.tickets(company_id);
 create index if not exists tickets_status_idx  on public.tickets(status);
+
+-- для уже созданных проектов
+alter table public.tickets add column if not exists source text default 'site';
+update public.tickets set source = 'site' where source is null;
+alter table public.tickets drop constraint if exists tickets_source_chk;
+alter table public.tickets add constraint tickets_source_chk
+  check (source in ('site','telegram'));
 
 create table if not exists public.ticket_comments (
   id         uuid primary key default gen_random_uuid(),

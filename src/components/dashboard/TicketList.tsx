@@ -9,6 +9,7 @@ import {
   CATEGORIES,
   PRIORITIES,
   TEAM,
+  sourceBadge,
 } from "@/lib/constants";
 import {
   changeStatus,
@@ -223,6 +224,8 @@ function TicketCard({
     STATUS_COLORS[t.status] ?? (["#6f887f", "#e7eeeb"] as [string, string]);
 
   const authorName = t.author?.full_name ?? "—";
+  const authorNick = t.author?.telegram_username ?? null;
+  const src = sourceBadge(t.source);
   const companyName = t.company?.name ?? "—";
   const attachments = t.ticket_attachments ?? [];
   const comments = [...(t.ticket_comments ?? [])].sort((a, b) =>
@@ -259,8 +262,19 @@ function TicketCard({
         <span className="text-sm font-extrabold text-[#9db3ac]">#{t.id}</span>
         <div>
           <div className="text-base font-bold">{t.title}</div>
-          <div className="mt-[3px] text-xs text-muted">
-            {companyName} · {authorName} · {fmtDate(t.created_at)}
+          <div className="mt-[3px] flex flex-wrap items-center gap-1.5 text-xs text-muted">
+            <span>
+              {companyName} · {authorName}
+              {authorNick ? ` · @${authorNick}` : ""} · {fmtDate(t.created_at)}
+            </span>
+            {src && (
+              <span
+                style={{ background: src.bg, color: src.fg }}
+                className="rounded-full px-2 py-0.5 text-[11px] font-bold"
+              >
+                {src.text}
+              </span>
+            )}
           </div>
         </div>
         <span style={badge(prioStyle)} className="hidden sm:inline">
@@ -301,7 +315,11 @@ function TicketCard({
             </div>
           )}
 
-          <AttachmentChips items={attachments} />
+          <AttachmentChips
+            items={attachments}
+            canDelete={canEdit}
+            onDeleted={() => router.refresh()}
+          />
           {canEdit && (
             <AddAttachment
               ticketId={t.id}

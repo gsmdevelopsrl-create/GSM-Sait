@@ -3,6 +3,7 @@ import type {
   TicketPriority,
   TicketCategory,
   AttachmentType,
+  TicketSource,
 } from "./types";
 
 export const STATUSES: TicketStatus[] = [
@@ -51,6 +52,16 @@ export const PRIORITY_COLORS: Record<TicketPriority, [string, string]> = {
 
 export function attachmentIcon(type: AttachmentType): string {
   return type === "image" ? "🖼" : type === "link" ? "🔗" : "📎";
+}
+
+/** Подпись и цвета бейджа «Источник» */
+export const SOURCE_LABEL: Record<TicketSource, { text: string; bg: string; fg: string }> = {
+  site: { text: "🌐 Сайт", bg: "#eef3f1", fg: "#4a5f57" },
+  telegram: { text: "✈️ Telegram", bg: "#e5edfb", fg: "#4a7cd6" },
+};
+
+export function sourceBadge(source: TicketSource | null | undefined) {
+  return source ? SOURCE_LABEL[source] ?? null : null;
 }
 
 export function initials(name: string | null | undefined): string {

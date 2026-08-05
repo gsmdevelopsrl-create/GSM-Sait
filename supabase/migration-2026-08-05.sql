@@ -88,3 +88,22 @@ create policy ticket_files_insert on storage.objects for insert to authenticated
     bucket_id = 'ticket-files'
     and public.can_access_ticket(((storage.foldername(name))[1])::bigint)
   );
+
+-- Удаление вложений (права проверяются в коде: админ всегда, клиент — пока «Новая»)
+drop policy if exists ticket_files_delete on storage.objects;
+create policy ticket_files_delete on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'ticket-files'
+    and public.can_access_ticket(((storage.foldername(name))[1])::bigint)
+  );
+
+-- ── 5. Ник Telegram и источник заявки ───────────────────────────────────────
+alter table public.profiles add column if not exists telegram_username text;
+
+alter table public.tickets add column if not exists source text default 'site';
+update public.tickets set source = 'site' where source is null;
+-- заявка, созданная из Telegram при тестировании бота
+update public.tickets set source = 'telegram' where id = 1043;
+alter table public.tickets drop constraint if exists tickets_source_chk;
+alter table public.tickets add constraint tickets_source_chk
+  check (source in ('site','telegram'));

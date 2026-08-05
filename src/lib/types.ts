@@ -9,6 +9,8 @@ export type TicketCategory =
   | "Обучение"
   | "Интеграция";
 export type AttachmentType = "image" | "file" | "link";
+/** Откуда пришла заявка */
+export type TicketSource = "site" | "telegram";
 
 export interface Profile {
   id: string;
@@ -53,9 +55,13 @@ export interface Ticket {
   company_id: string | null;
   author_id: string | null;
   assignee: string;
+  source: TicketSource | null;
   created_at: string;
   company?: { name: string } | null;
-  author?: { full_name: string | null } | null;
+  author?: {
+    full_name: string | null;
+    telegram_username?: string | null;
+  } | null;
   ticket_attachments?: Attachment[];
   ticket_comments?: Comment[];
 }

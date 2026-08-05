@@ -12,20 +12,63 @@ import {
   buildStoragePath,
   humanSize,
 } from "@/lib/attachments";
-import { getAttachmentUrl, registerAttachment } from "@/app/dashboard/actions";
+import {
+  getAttachmentUrl,
+  registerAttachment,
+  deleteAttachment,
+} from "@/app/dashboard/actions";
 import type { Attachment } from "@/lib/types";
 
 const chipCls =
   "flex items-center gap-1.5 rounded-[9px] border border-[#dde9e5] bg-[#f4f9f7] px-3 py-2 text-[13px] font-semibold transition hover:border-brand";
 
-export function AttachmentChips({ items }: { items: Attachment[] }) {
+export function AttachmentChips({
+  items,
+  canDelete,
+  onDeleted,
+}: {
+  items: Attachment[];
+  canDelete?: boolean;
+  onDeleted?: () => void;
+}) {
   if (!items.length) return null;
   return (
     <div className="mb-4 flex flex-wrap gap-2">
       {items.map((a) => (
-        <Chip key={a.id} a={a} />
+        <div key={a.id} className="flex items-stretch">
+          <Chip a={a} />
+          {canDelete && <DeleteButton a={a} onDeleted={onDeleted} />}
+        </div>
       ))}
     </div>
+  );
+}
+
+function DeleteButton({
+  a,
+  onDeleted,
+}: {
+  a: Attachment;
+  onDeleted?: () => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  return (
+    <button
+      type="button"
+      title="Удалить вложение"
+      disabled={pending}
+      onClick={() => {
+        if (!confirm(`Удалить «${a.name}»?`)) return;
+        startTransition(async () => {
+          const res = await deleteAttachment(a.id);
+          if (res.error) alert(res.error);
+          else onDeleted?.();
+        });
+      }}
+      className="ml-1 rounded-[9px] border border-[#dde9e5] bg-white px-2 text-[13px] font-bold text-[#9db3ac] transition hover:border-[#d64545] hover:text-[#d64545] disabled:opacity-50"
+    >
+      ✕
+    </button>
   );
 }
 

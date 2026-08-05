@@ -39,9 +39,9 @@ export default async function DashboardPage() {
   const { data: raw } = await supabase
     .from("tickets")
     .select(
-      `id, title, category, priority, status, description, deadline, estimate, assignee, created_at, company_id, author_id,
+      `id, title, category, priority, status, description, deadline, estimate, assignee, source, created_at, company_id, author_id,
        companies(name),
-       author:profiles!tickets_author_id_fkey(full_name),
+       author:profiles!tickets_author_id_fkey(full_name, telegram_username),
        ticket_attachments(id, ticket_id, type, name, url, storage_path, size_bytes),
        ticket_comments(id, ticket_id, author_name, is_client, body, created_at)`
     )
@@ -51,7 +51,10 @@ export default async function DashboardPage() {
     (t) => ({
       ...(t as unknown as Ticket),
       company: one<{ name: string }>(t.companies as never),
-      author: one<{ full_name: string | null }>(t.author as never),
+      author: one<{
+        full_name: string | null;
+        telegram_username?: string | null;
+      }>(t.author as never),
     })
   );
 
@@ -65,12 +68,13 @@ export default async function DashboardPage() {
   // Сотрудники (профили): админ видит все, клиент — только себя (RLS).
   const { data: membersRaw } = await supabase
     .from("profiles")
-    .select("id, full_name, position, phone, role, company_id");
+    .select("id, full_name, position, phone, telegram_username, role, company_id");
   const members = (membersRaw ?? []) as {
     id: string;
     full_name: string | null;
     position: string | null;
     phone: string | null;
+    telegram_username: string | null;
     role: string;
     company_id: string | null;
   }[];

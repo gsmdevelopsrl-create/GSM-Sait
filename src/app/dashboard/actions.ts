@@ -7,6 +7,10 @@ import { normalizeMdPhone, MD_PHONE_HINT } from "@/lib/phone";
 import { BUCKET } from "@/lib/attachments";
 import type { AttachmentType, TicketStatus } from "@/lib/types";
 
+function one<T>(v: T | T[] | null | undefined): T | null {
+  return Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
+}
+
 type Me = {
   id: string;
   full_name: string | null;
@@ -77,6 +81,7 @@ export async function createTicket(
       estimate: input.estimate ? Number(input.estimate) : null,
       company_id: me.company_id,
       author_id: me.id,
+      source: "site",
     })
     .select("id")
     .single();
@@ -286,6 +291,50 @@ export async function registerAttachment(input: {
   });
 
   if (error) return { error: "Не удалось прикрепить файл." };
+  revalidatePath("/dashboard");
+  return {};
+}
+
+/**
+ * Удаление вложения: убираем файл из хранилища и запись из базы.
+ * Права те же, что на правку заявки: админ — всегда, клиент — пока «Новая».
+ */
+export async function deleteAttachment(
+  attachmentId: string
+): Promise<{ error?: string }> {
+  const me = await getMe();
+  if (!me) return { error: "Сессия истекла." };
+
+  const supabase = await createClient();
+
+  const { data: a } = await supabase
+    .from("ticket_attachments")
+    .select("id, storage_path, ticket_id, tickets(status, company_id)")
+    .eq("id", attachmentId)
+    .maybeSingle();
+  if (!a) return { error: "Вложение не найдено." };
+
+  const t = one<{ status: string; company_id: string | null }>(
+    (a as { tickets?: unknown }).tickets as never
+  );
+
+  if (me.role !== "admin") {
+    if (!t || t.company_id !== me.company_id)
+      return { error: "Нет доступа к заявке." };
+    if (t.status !== "Новая")
+      return { error: "Заявка уже в работе — вложения изменить нельзя." };
+  }
+
+  if (a.storage_path) {
+    await supabase.storage.from(BUCKET).remove([a.storage_path]);
+  }
+
+  const { error } = await supabase
+    .from("ticket_attachments")
+    .delete()
+    .eq("id", attachmentId);
+
+  if (error) return { error: "Не удалось удалить вложение." };
   revalidatePath("/dashboard");
   return {};
 }

@@ -10,6 +10,7 @@ import {
   STATUS_COLORS,
   PRIORITY_COLORS,
   attachmentIcon,
+  sourceBadge,
 } from "@/lib/constants";
 import {
   BUCKET,
@@ -28,7 +29,8 @@ import {
   tgSetAssignee,
   tgCreateUpload,
   tgRegisterAttachment,
-  tgSaveProfile,
+  tgSavePhone,
+  tgDeleteAttachment,
   type TgState,
   type TgProfile,
 } from "@/app/tg/actions";
@@ -38,7 +40,43 @@ type TelegramWebApp = {
   initData: string;
   ready: () => void;
   expand: () => void;
+  /** Появился в Bot API 6.9 — просит у пользователя разрешение отдать номер. */
+  requestContact?: (cb: (granted: boolean, res?: unknown) => void) => void;
 };
+
+function pick(o: unknown, key: string): unknown {
+  return o && typeof o === "object"
+    ? (o as Record<string, unknown>)[key]
+    : undefined;
+}
+
+/**
+ * Достаёт номер из ответа requestContact.
+ * Формат ответа менялся между версиями Telegram, поэтому пробуем варианты
+ * и спокойно возвращаем null, если ничего не подошло.
+ */
+function extractPhone(res: unknown): string | null {
+  const candidates = [
+    pick(pick(pick(res, "responseUnsafe"), "contact"), "phone_number"),
+    pick(pick(res, "contact"), "phone_number"),
+    pick(res, "phone_number"),
+  ];
+  for (const c of candidates) if (typeof c === "string" && c) return c;
+
+  const resp = pick(res, "response");
+  if (typeof resp === "string") {
+    try {
+      const contact = new URLSearchParams(resp).get("contact");
+      if (contact) {
+        const parsed = JSON.parse(contact) as { phone_number?: string };
+        if (parsed.phone_number) return parsed.phone_number;
+      }
+    } catch {
+      /* формат не подошёл — вводят вручную */
+    }
+  }
+  return null;
+}
 
 declare global {
   interface Window {
@@ -162,14 +200,12 @@ export function TgApp() {
   const openTicket = tickets.find((t) => t.id === openId) ?? null;
   const isAdmin = profile.role === "admin";
 
-  // Телефон и должность обязательны — просим заполнить, если чего-то нет
-  if (!profile.phone || !profile.position) {
+  // Просим только телефон — должность указывается при регистрации на сайте
+  if (!profile.phone) {
     return (
       <Shell>
-        <ProfileSetupForm
+        <PhoneSetupForm
           initData={initData!}
-          phone={profile.phone ?? ""}
-          position={profile.position ?? ""}
           onSaved={() => initData && reload(initData)}
         />
       </Shell>
@@ -266,27 +302,45 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ProfileSetupForm({
+function PhoneSetupForm({
   initData,
-  phone: phone0,
-  position: position0,
   onSaved,
 }: {
   initData: string;
-  phone: string;
-  position: string;
   onSaved: () => void;
 }) {
-  const [phone, setPhone] = useState(phone0);
-  const [position, setPosition] = useState(position0);
+  const [phone, setPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [hint, setHint] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  // Telegram отдаёт номер только с явного согласия — показываем системный запрос
+  const grabFromTelegram = () => {
+    const wa = window.Telegram?.WebApp;
+    if (!wa?.requestContact) {
+      setHint("Ваша версия Telegram не умеет делиться номером — введите вручную.");
+      return;
+    }
+    wa.requestContact((granted, res) => {
+      if (!granted) {
+        setHint("Доступ не выдан — введите номер вручную.");
+        return;
+      }
+      const got = extractPhone(res);
+      if (got) {
+        setPhone(got);
+        setHint("Номер получен из Telegram — проверьте и сохраните.");
+      } else {
+        setHint("Не удалось получить номер автоматически — введите вручную.");
+      }
+    });
+  };
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     startTransition(async () => {
-      const res = await tgSaveProfile(initData, phone, position);
+      const res = await tgSavePhone(initData, phone);
       if (res.error) setError(res.error);
       else onSaved();
     });
@@ -294,9 +348,9 @@ function ProfileSetupForm({
 
   return (
     <form onSubmit={submit} className="rounded-2xl border border-line bg-white p-5">
-      <div className="mb-1 text-lg font-extrabold">Немного о вас</div>
+      <div className="mb-1 text-lg font-extrabold">Укажите телефон</div>
       <p className="mb-4 text-sm text-muted">
-        Заполняется один раз — нужно для связи по заявкам.
+        Заполняется один раз — нужен для связи по заявкам.
       </p>
       <div className="flex flex-col gap-3">
         <div>
@@ -309,16 +363,14 @@ function ProfileSetupForm({
             onChange={(e) => setPhone(e.target.value)}
             className={inputCls}
           />
-          <p className="mt-1 text-[11px] text-muted">{MD_PHONE_HINT}</p>
-        </div>
-        <div>
-          <label className="mb-1.5 block text-[13px] font-bold">Должность</label>
-          <input
-            placeholder="напр. главный бухгалтер"
-            value={position}
-            onChange={(e) => setPosition(e.target.value)}
-            className={inputCls}
-          />
+          <button
+            type="button"
+            onClick={grabFromTelegram}
+            className="mt-2 w-full rounded-xl border-[1.5px] border-[#b7d5cd] bg-[#f4f9f7] py-2.5 text-[13px] font-bold text-brand-dark"
+          >
+            📱 Взять номер из Telegram
+          </button>
+          <p className="mt-1 text-[11px] text-muted">{hint ?? MD_PHONE_HINT}</p>
         </div>
         {error && (
           <div className="rounded-lg bg-[#fbe3e3] px-3 py-2 text-sm font-semibold text-[#d64545]">
@@ -439,6 +491,7 @@ function TicketList({
             {isAdmin && t.company?.name && <span>{t.company.name}</span>}
             <span>{t.category}</span>
             <Badge kind="priority" value={t.priority} small />
+            <SourceBadge source={t.source} />
             {(t.ticket_attachments?.length ?? 0) > 0 && (
               <span>📎 {t.ticket_attachments!.length}</span>
             )}
@@ -523,12 +576,19 @@ function TicketDetail({
           <div className="text-[16px] font-extrabold">{ticket.title}</div>
           <Badge kind="status" value={ticket.status} />
         </div>
-        <div className="mb-3 flex flex-wrap gap-2 text-xs text-muted">
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted">
           <span className="font-bold text-[#9db3ac]">#{ticket.id}</span>
           {isAdmin && ticket.company?.name && <span>{ticket.company.name}</span>}
           <span>{ticket.category}</span>
           <Badge kind="priority" value={ticket.priority} small />
-          <span>Исполнитель: {ticket.assignee}</span>
+          <SourceBadge source={ticket.source} />
+        </div>
+        <div className="mb-3 text-xs text-muted">
+          Автор: {ticket.author?.full_name ?? "—"}
+          {ticket.author?.telegram_username
+            ? ` · @${ticket.author.telegram_username}`
+            : ""}
+          {" · "}Исполнитель: {ticket.assignee}
         </div>
         {ticket.description && (
           <p className="mb-3 text-sm leading-relaxed text-[#2b3d37]">
@@ -552,20 +612,34 @@ function TicketDetail({
               const cls =
                 "flex items-center gap-1.5 rounded-[9px] border border-[#dde9e5] bg-[#f4f9f7] px-3 py-2 text-[13px] font-semibold";
               const href = a.signedUrl ?? a.url;
-              return href ? (
-                <a
-                  key={a.id}
-                  href={href}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={cls}
-                >
-                  {inner}
-                </a>
-              ) : (
-                <span key={a.id} className={`${cls} opacity-60`}>
-                  {inner}
-                </span>
+              return (
+                <div key={a.id} className="flex items-stretch">
+                  {href ? (
+                    <a href={href} target="_blank" rel="noreferrer" className={cls}>
+                      {inner}
+                    </a>
+                  ) : (
+                    <span className={`${cls} opacity-60`}>{inner}</span>
+                  )}
+                  {canEdit && (
+                    <button
+                      type="button"
+                      title="Удалить"
+                      disabled={pending}
+                      onClick={() => {
+                        if (!confirm(`Удалить «${a.name}»?`)) return;
+                        startTransition(async () => {
+                          const res = await tgDeleteAttachment(initData, a.id);
+                          if (res.error) setError(res.error);
+                          else onChanged();
+                        });
+                      }}
+                      className="ml-1 rounded-[9px] border border-[#dde9e5] bg-white px-2 text-[13px] font-bold text-[#9db3ac] disabled:opacity-50"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -890,6 +964,19 @@ function NewTicketForm({
         </div>
       }
     />
+  );
+}
+
+function SourceBadge({ source }: { source: Ticket["source"] }) {
+  const s = sourceBadge(source);
+  if (!s) return null;
+  return (
+    <span
+      style={{ background: s.bg, color: s.fg }}
+      className="shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold"
+    >
+      {s.text}
+    </span>
   );
 }
 

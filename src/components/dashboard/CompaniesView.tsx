@@ -11,6 +11,7 @@ type Member = {
   full_name: string | null;
   position: string | null;
   phone: string | null;
+  telegram_username: string | null;
   role: string;
   company_id: string | null;
 };

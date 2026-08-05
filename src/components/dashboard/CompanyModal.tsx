@@ -11,6 +11,7 @@ type Member = {
   full_name: string | null;
   position: string | null;
   phone: string | null;
+  telegram_username: string | null;
   role: string;
 };
 
@@ -179,17 +180,29 @@ export function CompanyModal({
                         className={inputCls}
                       />
                     </div>
-                    <div className="mt-2 text-[12px] text-muted">
-                      📞{" "}
-                      {m.phone ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted">
+                      <span>
+                        📞{" "}
+                        {m.phone ? (
+                          <a
+                            href={`tel:${m.phone}`}
+                            className="font-semibold text-brand-dark"
+                          >
+                            {formatMdPhone(m.phone)}
+                          </a>
+                        ) : (
+                          <span className="text-[#9db3ac]">телефон не указан</span>
+                        )}
+                      </span>
+                      {m.telegram_username && (
                         <a
-                          href={`tel:${m.phone}`}
+                          href={`https://t.me/${m.telegram_username}`}
+                          target="_blank"
+                          rel="noreferrer"
                           className="font-semibold text-brand-dark"
                         >
-                          {formatMdPhone(m.phone)}
+                          ✈️ @{m.telegram_username}
                         </a>
-                      ) : (
-                        <span className="text-[#9db3ac]">телефон не указан</span>
                       )}
                     </div>
                   </div>
